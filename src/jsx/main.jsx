@@ -1277,483 +1277,433 @@ var LogManager = {
     _data: {},
     _layerData: [],
     
-    /**
+        /**
      * Initializes the log manager
      */
-    init: function () {
+    init: function() {
         try {
-            var funName = this._mgnName + "init: ";
-            DebugLogManager(funName + "Starting...")
-            try {
-                DebugLogManager.info(funName + "Initializing...");
-                this._data = {};
-                this._layerData = [];
-                return true;
-            } catch (e) {
-                DebugLogManager.error(funName + " initializing LogManager._data" + this._data + " or " + "LogManager._layerData " + this._layerData + e.toString());
-                return false;
+            var funName = this._mngName + ".init: ";
+            DebugLogManager.info(funName + "Starting...");
+            
+            // Initialize data structures
+            this._data = {};
+            this._layerData = [];
+            
+            // Initialize document info if available
+            if (app.documents.length > 0) {
+                var doc = app.activeDocument;
+                if (doc) {
+                    this.logDocumentInfo(doc);
+                }
             }
-
-            try {
-                DebugLogManager.info(funName + " invoking logging functions...");
-                this.logDocumentInfo(DocumentManager._doc);
-                return true;
-            } catch (e) {
-                DebugLogManager.error(funName + " initializing LogManager._data" + this._data + " or " + "LogManager._layerData " + this._layerData + e.toString());
-                return false;
-            }
+            
+            return true;
         } catch (e) {
-            DebugLogManager.error(funName + " encountered exception: " + e.toString());
+            DebugLogManager.error(this._mngName + ".init error: " + e.toString());
             return false;
         }
     },
-    
-        /**
-         * Logs basic document information
-         * @param {Document} doc - The active document
-         */
-        logDocumentInfo: function(doc) {
-            try {
-                DebugLogManager.info("Logging document info");
-                if (!doc) {
-                    DebugLogManager.error("Invalid document provided");
-                    return false;
-                }
 
-                this._data[LOG_KEYS.DOC_PATH] = doc.path || "";
-                this._data[LOG_KEYS.DOC_NAME] = doc.name;
-                this._data[LOG_KEYS.LAYER_COUNT] = doc.layers ? doc.layers.length : 0;
-            
-                return true;
-            } catch (e) {
-                DebugLogManager.error("Error in logDocumentInfo:", e.toString());
+    /**
+     * Logs basic document information
+     * @param {Document} doc - The active document
+     */
+    logDocumentInfo: function(doc) {
+        try {
+            DebugLogManager.info("Logging document info");
+            if (!doc) {
+                DebugLogManager.error("Invalid document provided");
                 return false;
             }
-        },
-    
-        /**
-         * Logs information about a specific layer
-         * @param {Layer} layer - The layer to log
-         */
-        logLayerInfo: function(layer) {
-            try {
-                DebugLogManager.info("Logging layer info for:", layer.name);
-                var layerInfo = {};
-                layerInfo[LOG_KEYS.LAYER_NAME] = layer.name;
-                layerInfo[LOG_KEYS.LAYER_CHARS] = LayerManager.stringToCharCodes(layer.name);
-                this._layerData.push(layerInfo);
-                return true;
-            } catch (e) {
-                DebugLogManager.error("Error in logLayerInfo:", e.toString());
-                return false;
-            }
-        },
-    
-        /**
-         * Logs detailed information about the target layer
-         * @param {Layer} layer - The target layer
-         */
-        logTargetLayerInfo: function(layer) {
-            try {
-                DebugLogManager.info("Logging target layer info for:", layer.name);
-                this._data[LOG_KEYS.TARGET_FOUND] = layer.name;
-            
-                // Area calculations
-                var area = LayerManager.getLayerArea(layer);
-                var areaMM = (area / 2.834645 / 2.834645).toFixed(2);
-                var areaCM = (areaMM / 100).toFixed(2);
-            
-                this._data[LOG_KEYS.AREA_POINTS] = area.toFixed(10);
-                this._data[LOG_KEYS.AREA_MM] = areaMM;
-                this._data[LOG_KEYS.AREA_CM] = areaCM;
-            
-                // Height calculations
-                var height = LayerManager.getMaxHeight(layer);
-                var heightMM = (height / 2.834645).toFixed(2);
-                var heightCM = heightMM / 100;
-                this._data[LOG_KEYS.HEIGHT_POINTS] = height;
-                this._data[LOG_KEYS.HEIGHT_MM] = heightMM;
-                this._data[LOG_KEYS.HEIGHT_CM] = heightCM;
-            
-                // LED count if available
-                if (layer.name === "LED") {
-                    var ledCount = LayerManager.countLEDGroups(layer);
-                    if (ledCount > 0) {
-                        this._data[LOG_KEYS.LED_COUNT] = ledCount;
-                    }
-                }
-            
-                return true;
-            } catch (error) {
-                DebugLogManager.error("Error in logTargetLayerInfo:", error.toString());
-                return false;
-            }
-        },
-    
-        /**
-         * Sets the export path for the current process
-         * @param {String} path - The export path
-         */
-        setExportPath: function(path) {
-            try {
-                DebugLogManager.info("Setting export path:", path);
-                var doc = app.activeDocument;
-                var docPath = doc.path;
-                var docName = doc.name;
-                var expPath = new Folder(docPath + "/" + docName.replace(/\.ai$/i, ''));
-                if (!expPath.exists) {
-                    expPath.create();
-                    DebugLogManager.info("[EXPORT] Created export folder: " + expPath.fsName);
-                }
-                this._data[LOG_KEYS.EXPORT_PATH] = path || expPath.fsName;
-                return expPath.fsName;
-            } catch (e) {
-                DebugLogManager.error("Error in setExportPath:", e.toString());
-                return false;
-            }
-        },
-    
-        /**
-         * Logs measurements for an array of shapes
-         * @param {Array} shapes - Array of shapes to measure
-         */
-        logShapeMeasurements: function() {
-            try {
-                DebugLogManager.info("Starting shape measurements logging");
-            
-                var shapes = this._data.shapes;
-            
-                var shapesAndLeds = this._data.results;
-            
-                for (var i = 0; i < shapes.length; i++) {
-                    var shape = shapes[i];
-                    var num = i + 1;
-                    // three digit index
-                    var index = num < 10 ? "00" + num : (num < 100 ? "0" + num : num.toString());
-                
 
-                    // Get measurements
-                    var width = PathManager.getPathWidth(shape);
-                    var height = PathManager.getPathHeight(shape);
-                    var area = PathManager.getPathArea(shape);
-                
-                    // Get LED count for this shape
-                    var overlappingLEDs = OverlapDetectionManager.detectOverlap(shapes, leds);
-                    var ledCount = overlappingLEDs ? overlappingLEDs.length : 0;
-                
-                    // Log shape information
-                    this._data[LOG_KEYS.SHAPE_NAME_ROOT + index] = shape.name || ("Shape_" + index);
-                
-                    // Log heights
-                    this._data[LOG_KEYS.SHAPE_HEIGHT_PT + index] = height.pt.toFixed(2);
-                    this._data[LOG_KEYS.SHAPE_HEIGHT_MM + index] = height.mm.toFixed(2);
-                    this._data[LOG_KEYS.SHAPE_HEIGHT_CM + index] = height.cm.toFixed(2);
-                
-                    // Log widths
-                    this._data[LOG_KEYS.SHAPE_WIDTH_PT + index] = width.pt.toFixed(2);
-                    this._data[LOG_KEYS.SHAPE_WIDTH_MM + index] = width.mm.toFixed(2);
-                    this._data[LOG_KEYS.SHAPE_WIDTH_CM + index] = width.cm.toFixed(2);
-                
-                    // Log areas
-                    this._data[LOG_KEYS.SHAPE_AREA_PTSQ + index] = area.pt.toFixed(2);
-                    this._data[LOG_KEYS.SHAPE_AREA_MMSQ + index] = area.mm.toFixed(2);
-                    this._data[LOG_KEYS.SHAPE_AREA_CMSQ + index] = area.cm.toFixed(2);
-                
-                    // Log LED count
-                    this._data[LOG_KEYS.SHAPE_LED_COUNT + index] = ledCount;
-                
-                    DebugLogManager.info("Logged measurements for shape:", index, "LED count:", ledCount);
-                }
-            
-                DebugLogManager.info("Completed shape measurements logging");
+            this._data[LOG_KEYS.DOC_PATH] = doc.path || "";
+            this._data[LOG_KEYS.DOC_NAME] = doc.name;
+            this._data[LOG_KEYS.LAYER_COUNT] = doc.layers ? doc.layers.length : 0;
         
-            } catch (e) {
-                DebugLogManager.error("Error in logShapeMeasurements:", e.toString());
+            return true;
+        } catch (e) {
+            DebugLogManager.error("Error in logDocumentInfo:", e.toString());
+            return false;
+        }
+    },
+
+    /**
+     * Logs information about a specific layer
+     * @param {Layer} layer - The layer to log
+     */
+    logLayerInfo: function(layer) {
+        try {
+            DebugLogManager.info("Logging layer info for:", layer.name);
+            var layerInfo = {};
+            layerInfo[LOG_KEYS.LAYER_NAME] = layer.name;
+            layerInfo[LOG_KEYS.LAYER_CHARS] = LayerManager.stringToCharCodes(layer.name);
+            this._layerData.push(layerInfo);
+            return true;
+        } catch (e) {
+            DebugLogManager.error("Error in logLayerInfo:", e.toString());
+            return false;
+        }
+    },
+
+    /**
+     * Logs detailed information about the target layer
+     * @param {Layer} layer - The target layer
+     */
+    logTargetLayerInfo: function(layer) {
+        try {
+            DebugLogManager.info("Logging target layer info for:", layer.name);
+            this._data[LOG_KEYS.TARGET_FOUND] = layer.name;
+        
+            // Area calculations
+            var area = LayerManager.getLayerArea(layer);
+            var areaMM = (area / 2.834645 / 2.834645).toFixed(2);
+            var areaCM = (areaMM / 100).toFixed(2);
+        
+            this._data[LOG_KEYS.AREA_POINTS] = area.toFixed(10);
+            this._data[LOG_KEYS.AREA_MM] = areaMM;
+            this._data[LOG_KEYS.AREA_CM] = areaCM;
+        
+            // Height calculations
+            var height = LayerManager.getMaxHeight(layer);
+            var heightMM = (height / 2.834645).toFixed(2);
+            var heightCM = heightMM / 100;
+            this._data[LOG_KEYS.HEIGHT_POINTS] = height;
+            this._data[LOG_KEYS.HEIGHT_MM] = heightMM;
+            this._data[LOG_KEYS.HEIGHT_CM] = heightCM;
+        
+            // LED count if available
+            if (layer.name === "LED") {
+                var ledCount = LayerManager.countLEDGroups(layer);
+                if (ledCount > 0) {
+                    this._data[LOG_KEYS.LED_COUNT] = ledCount;
+                }
             }
-        },
+        
+            return true;
+        } catch (error) {
+            DebugLogManager.error("Error in logTargetLayerInfo:", error.toString());
+            return false;
+        }
+    },
 
-        /**
-         * Retrieves all items from a specified layer whose names start with the given partial name (root name).
-         * 指定されたレイヤー内で、指定した部分名（ルート名）で始まるすべてのアイテムを取得する。
-         *
-         * @param {Layer} layer - The Illustrator layer to search in.
-         *                        検索するIllustratorレイヤー。
-         * @param {string} partialName - The root name to match at the beginning of item names.
-         *                               アイテム名の先頭に一致するルート名。
-         * @returns {Array} Array of matching items.
-         *                  一致するアイテムの配列。
-         */
-        getItemsByPartialName: function (layer, partialName) {
-            try {
-                if (!layer || !partialName) {
-                    DebugLogManager.error("[GET ITEMS] Invalid layer or partial name provided.");
-                    return [];
-                }
+    /**
+     * Sets the export path for the current process
+     * @param {String} path - The export path
+     */
+    setExportPath: function(path) {
+        try {
+            DebugLogManager.info("Setting export path:", path);
+            var doc = app.activeDocument;
+            var docPath = doc.path;
+            var docName = doc.name;
+            var expPath = new Folder(docPath + "/" + docName.replace(/\.ai$/i, ''));
+            if (!expPath.exists) {
+                expPath.create();
+                DebugLogManager.info("[EXPORT] Created export folder: " + expPath.fsName);
+            }
+            this._data[LOG_KEYS.EXPORT_PATH] = path || expPath.fsName;
+            return expPath.fsName;
+        } catch (e) {
+            DebugLogManager.error("Error in setExportPath:", e.toString());
+            return false;
+        }
+    },
 
-                var matchingItems = [];
-                var totalItems = layer.pageItems.length;
-
-                DebugLogManager.info("[GET ITEMS] Searching for items in layer:", layer.name, "with partial name:", partialName);
+    /**
+     * Logs measurements for an array of shapes
+     * @param {Array} shapes - Array of shapes to measure
+     */
+    logShapeMeasurements: function() {
+        try {
+            DebugLogManager.info("Starting shape measurements logging");
+        
+            var shapes = this._data.shapes;
+        
+            var shapesAndLeds = this._data.results;
+        
+            for (var i = 0; i < shapes.length; i++) {
+                var shape = shapes[i];
+                var num = i + 1;
+                // three digit index
+                var index = num < 10 ? "00" + num : (num < 100 ? "0" + num : num.toString());
             
-                for (var i = 0; i < totalItems; i++) {
-                    var item = layer.pageItems[i];
 
-                    if (item.name.indexOf(partialName) === 0) { // ✅ Check if the name starts with partialName
-                        matchingItems.push(item);
-                    }
-                }
+                // Get measurements
+                var width = PathManager.getPathWidth(shape);
+                var height = PathManager.getPathHeight(shape);
+                var area = PathManager.getPathArea(shape);
+            
+                // Get LED count for this shape
+                var overlappingLEDs = OverlapDetectionManager.detectOverlap(shapes, leds);
+                var ledCount = overlappingLEDs ? overlappingLEDs.length : 0;
+            
+                // Log shape information
+                this._data[LOG_KEYS.SHAPE_NAME_ROOT + index] = shape.name || ("Shape_" + index);
+            
+                // Log heights
+                this._data[LOG_KEYS.SHAPE_HEIGHT_PT + index] = height.pt.toFixed(2);
+                this._data[LOG_KEYS.SHAPE_HEIGHT_MM + index] = height.mm.toFixed(2);
+                this._data[LOG_KEYS.SHAPE_HEIGHT_CM + index] = height.cm.toFixed(2);
+            
+                // Log widths
+                this._data[LOG_KEYS.SHAPE_WIDTH_PT + index] = width.pt.toFixed(2);
+                this._data[LOG_KEYS.SHAPE_WIDTH_MM + index] = width.mm.toFixed(2);
+                this._data[LOG_KEYS.SHAPE_WIDTH_CM + index] = width.cm.toFixed(2);
+            
+                // Log areas
+                this._data[LOG_KEYS.SHAPE_AREA_PTSQ + index] = area.pt.toFixed(2);
+                this._data[LOG_KEYS.SHAPE_AREA_MMSQ + index] = area.mm.toFixed(2);
+                this._data[LOG_KEYS.SHAPE_AREA_CMSQ + index] = area.cm.toFixed(2);
+            
+                // Log LED count
+                this._data[LOG_KEYS.SHAPE_LED_COUNT + index] = ledCount;
+            
+                DebugLogManager.info("Logged measurements for shape:", index, "LED count:", ledCount);
+            }
+        
+            DebugLogManager.info("Completed shape measurements logging");
+    
+        } catch (e) {
+            DebugLogManager.error("Error in logShapeMeasurements:", e.toString());
+        }
+    },
 
-                DebugLogManager.info("[GET ITEMS] Found", matchingItems.length, "items matching:", partialName);
-                return matchingItems;
-
-            } catch (e) {
-                DebugLogManager.error("[GET ITEMS] Error retrieving items:", e.toString());
+    /**
+     * Retrieves all items from a specified layer whose names start with the given partial name (root name).
+     * 指定されたレイヤー内で、指定した部分名（ルート名）で始まるすべてのアイテムを取得する。
+     *
+     * @param {Layer} layer - The Illustrator layer to search in.
+     *                        検索するIllustratorレイヤー。
+     * @param {string} partialName - The root name to match at the beginning of item names.
+     *                               アイテム名の先頭に一致するルート名。
+     * @returns {Array} Array of matching items.
+     *                  一致するアイテムの配列。
+     */
+    getItemsByPartialName: function (layer, partialName) {
+        try {
+            if (!layer || !partialName) {
+                DebugLogManager.error("[GET ITEMS] Invalid layer or partial name provided.");
                 return [];
             }
-        },
-    
-        reverseArray: function (arr) {
-            var reversed = [];
-            for (var i = arr.length - 1; i >= 0; i--) {
-                reversed.push(arr[i]);
-            }
-            return reversed;
-        },
 
-        /**
-         * Generates the output string from all logged data
-         * @returns {String} The formatted output string
-         */
-        generateOutput: function() {
-            try {
-                DebugLogManager.info("Generating output");
-                var output = '';
-            
-                // Document level information
-                output += LOG_KEYS.DOC_PATH + ': ' + this._data[LOG_KEYS.DOC_PATH] + '\n';
-                output += LOG_KEYS.DOC_NAME + ': ' + this._data[LOG_KEYS.DOC_NAME] + '\n';
-                output += LOG_KEYS.EXPORT_PATH + ': ' + this._data[LOG_KEYS.EXPORT_PATH] + '\n';
-                output += LOG_KEYS.LAYER_COUNT + ': ' + this._data[LOG_KEYS.LAYER_COUNT] + '\n';
-            
-                // Layer information
-                for (var i = 0; i < this._layerData.length; i++) {
-                    var layerInfo = this._layerData[i];
-                    output += LOG_KEYS.LAYER_NAME + ': ' + layerInfo[LOG_KEYS.LAYER_NAME] + '\n';
-                    output += LOG_KEYS.LAYER_CHARS + ': ' + layerInfo[LOG_KEYS.LAYER_CHARS] + '\n';
-                }
-            
-                // Target layer information if found
-                //            if (this._data[LOG_KEYS.TARGET_FOUND]) {
-                output += LOG_KEYS.TARGET_FOUND + ': ' + this._data[LOG_KEYS.TARGET_FOUND] + '\n';
-                output += LOG_KEYS.AREA_POINTS + ': ' + this._data[LOG_KEYS.AREA_POINTS] + ' square points\n';
-                output += LOG_KEYS.AREA_MM + ': ' + this._data[LOG_KEYS.AREA_MM] + '\n';
-                output += LOG_KEYS.AREA_CM + ': ' + this._data[LOG_KEYS.AREA_CM] + '\n';
-                output += LOG_KEYS.HEIGHT_POINTS + ': ' + this._data[LOG_KEYS.HEIGHT_POINTS] + '\n';
-                output += LOG_KEYS.HEIGHT_MM + ': ' + this._data[LOG_KEYS.HEIGHT_MM] + '\n';
-                //            }
+            var matchingItems = [];
+            var totalItems = layer.pageItems.length;
 
-                // ✅ Compute total LED count inside `generateOutput()`
-                try {
-                    var totalLEDCount = 0;
-                    var tempLayer = LayerManager.findLayerByName(app.activeDocument, "Temp_Union_Layer");
-                    totalLEDCount = tempLayer.groupItems.length;
-                    output += LOG_KEYS.LED_COUNT + ': ' + totalLEDCount + '\n';
-                } catch (error) {
-                    var errMes = "Could not calculate the totalLEDCount with LOG_KEYS.LED_COUNT: " + " and totalLEDCount: " + totalLEDCount;
-                    DebugLogManager.error(errMes);
-                    this.writeToFile(null, errMes);
-                }
-
-
-                // ✅ Ensure shape measurements are logged
-                DebugLogManager.info("Checking stored shape measurements in LogManager:", this._data.shapes);
-            
-                //var shapes = this.reverseArray(this.getItemsByPartialName(tempLayer, "Part_"));
-                var shapes = this._data.shapes;
-            
-                if (!shapes || shapes.length === 0) {
-                    output += "\n🚨 No shape measurements found. 🚨\n";
-                } else {
-                    output += "\n=== SHAPE MEASUREMENTS ===\n";
-
-                    for (var i = 0; i < shapes.length; i++) {
-                        var shape = shapes[i];
-
-                        // Height measurements
-                        output += LOG_KEYS.SHAPE_HEIGHT_MM + (i + 1) + ': ' +
-                            shape.height + '\n';
-                        /*
-                        output += LOG_KEYS.SHAPE_HEIGHT_PT + (i + 1) + ': ' + 
-                                this._data[LOG_KEYS.SHAPE_HEIGHT_PT + (i + 1)] + '\n';
-                        output += LOG_KEYS.SHAPE_HEIGHT_CM + (i + 1) + ': ' + 
-                                this._data[LOG_KEYS.SHAPE_HEIGHT_CM + (i + 1)] + '\n';
-                                */
-                    
-                        // Width measurements
-                        output += LOG_KEYS.SHAPE_WIDTH_MM + (i + 1) + ': ' +
-                            shape.width + '\n';
-                        /*
-                        output += LOG_KEYS.SHAPE_WIDTH_PT + (i + 1) + ': ' + 
-                                this._data[LOG_KEYS.SHAPE_WIDTH_PT + (i + 1)] + '\n';
-                        output += LOG_KEYS.SHAPE_WIDTH_CM + (i + 1) + ': ' + 
-                                this._data[LOG_KEYS.SHAPE_WIDTH_CM + (i + 1)] + '\n';
-                        */
-                        // Area measurements
-                        //output += LOG_KEYS.SHAPE_AREA_PTSQ + (i + 1) + ': ' + 
-                        //    shape.getPathArea + '\n';
-                        /*
-                        output += LOG_KEYS.SHAPE_AREA_MMSQ + (i + 1) + ': ' + 
-                                this._data[LOG_KEYS.SHAPE_AREA_MMSQ + (i + 1)] + '\n';
-                        output += LOG_KEYS.SHAPE_AREA_CMSQ + (i + 1) + ': ' + 
-                            this._data[LOG_KEYS.SHAPE_AREA_CMSQ + (i + 1)] + '\n';
-                        */
-                        // In the shape measurements loop in generateOutput:
-                        //output += LOG_KEYS.SHAPE_LED_COUNT + (i + 1) + ': ' + 
-                        //    this._data[LOG_KEYS.SHAPE_LED_COUNT + (i + 1)] + '\n';
-
-                        output += LOG_KEYS.SHAPE_LED_COUNT + (i + 1) + ': ' + this._data.shapes[i].ledCount + '\n\n';
-                    }
-                }
-
-                /*
-                    // Shape measurements
-                    for (var shapeIndex = 1; shapeIndex <= 1000; shapeIndex++) {
-                        var shapeKey = LOG_KEYS.SHAPE_NAME_ROOT + shapeIndex;
-                        DebugLogManager.info("Checking for shape key:", shapeKey);
-                        DebugLogManager.info("hasOwnProperty result:", this._data.hasOwnProperty(shapeKey));
-    
-                        // Check if this shape exists in the data
-                        if (!this._data.hasOwnProperty(shapeKey)) {
-                            break; // No more shapes to process
-                        }
-                        
-                        output += '\n=== Shape ' + shapeIndex + ' ===\n';
-                        output += LOG_KEYS.SHAPE_NAME_ROOT + shapeIndex + ': ' + 
-                                this._data[LOG_KEYS.SHAPE_NAME_ROOT + shapeIndex] + '\n';
-                        
-                        // Height measurements
-                        output += LOG_KEYS.SHAPE_HEIGHT_PT + shapeIndex + ': ' + 
-                                this._data[LOG_KEYS.SHAPE_HEIGHT_PT + shapeIndex] + '\n';
-                        output += LOG_KEYS.SHAPE_HEIGHT_MM + shapeIndex + ': ' + 
-                                this._data[LOG_KEYS.SHAPE_HEIGHT_MM + shapeIndex] + '\n';
-                        output += LOG_KEYS.SHAPE_HEIGHT_CM + shapeIndex + ': ' + 
-                                this._data[LOG_KEYS.SHAPE_HEIGHT_CM + shapeIndex] + '\n';
-                        
-                        // Width measurements
-                        output += LOG_KEYS.SHAPE_WIDTH_PT + shapeIndex + ': ' + 
-                                this._data[LOG_KEYS.SHAPE_WIDTH_PT + shapeIndex] + '\n';
-                        output += LOG_KEYS.SHAPE_WIDTH_MM + shapeIndex + ': ' + 
-                                this._data[LOG_KEYS.SHAPE_WIDTH_MM + shapeIndex] + '\n';
-                        output += LOG_KEYS.SHAPE_WIDTH_CM + shapeIndex + ': ' + 
-                                this._data[LOG_KEYS.SHAPE_WIDTH_CM + shapeIndex] + '\n';
-                        
-                        // Area measurements
-                        output += LOG_KEYS.SHAPE_AREA_PTSQ + shapeIndex + ': ' + 
-                                this._data[LOG_KEYS.SHAPE_AREA_PTSQ + shapeIndex] + '\n';
-                        output += LOG_KEYS.SHAPE_AREA_MMSQ + shapeIndex + ': ' + 
-                                this._data[LOG_KEYS.SHAPE_AREA_MMSQ + shapeIndex] + '\n';
-                        output += LOG_KEYS.SHAPE_AREA_CMSQ + shapeIndex + ': ' + 
-                            this._data[LOG_KEYS.SHAPE_AREA_CMSQ + shapeIndex] + '\n';
-                        
-                        // In the shape measurements loop in generateOutput:
-                        output += LOG_KEYS.SHAPE_LED_COUNT + shapeIndex + ': ' + 
-                            this._data[LOG_KEYS.SHAPE_LED_COUNT + shapeIndex] + '\n';
-                        }
-                    }
-                */
-                DebugLogManager.info("Output generated successfully");
-                return output;
-            } catch (e) {
-                DebugLogManager.error("Error in generateOutput:", e.toString());
-                return '';
-            }
-        },
+            DebugLogManager.info("[GET ITEMS] Searching for items in layer:", layer.name, "with partial name:", partialName);
         
-        /**
-         * Writes log data to a file, automatically handling success and error logs.
-         * 成功ログとエラーログを自動処理してログデータをファイルに書き込む。
-         *
-         * If `filePath` is provided, the log is written to that specific location.
-         * Otherwise, it defaults to writing the output log to `<document_path>/<document_name>_output_log.txt`.
-         * If an error occurs during writing, an error log is saved to `<document_path>/<document_name>_error_log.txt`.
-         * 
-         * `filePath` が指定された場合、そのパスにログを書き込む。
-         * それ以外の場合、デフォルトで `<document_path>/<document_name>_output_log.txt` にログを書き込む。
-         * 書き込み中にエラーが発生した場合は、 `<document_path>/<document_name>_error_log.txt` にエラーログを保存する。
-         *
-         * @param {string} [filePath] - (Optional) The file path to write the log. If omitted, the default path is used.
-         *                              (省略可能) ログを書き込むファイルパス。省略した場合はデフォルトのパスが使用される。
-         * @param {string} [errorMessage] - (Optional) Error message to include in the log if writing fails.
-         *                                  (省略可能) 書き込みに失敗した場合にログに含めるエラーメッセージ。
-         * @returns {boolean} `true` if writing was successful, `false` if an error occurred.
-         *                    書き込みが成功した場合は `true`、エラーが発生した場合は `false`。
-         */
-        writeToFile: function (filePath, errorMessage) {
-            try {
-                var doc = app.activeDocument;
-                if (!doc) {
-                    DebugLogManager.error("No active document found.");
-                    return false;
+            for (var i = 0; i < totalItems; i++) {
+                var item = layer.pageItems[i];
+
+                if (item.name.indexOf(partialName) === 0) { // ✅ Check if the name starts with partialName
+                    matchingItems.push(item);
                 }
+            }
 
-                // Extract document path and name (excluding .ai extension)
-                var docPath = doc.path;
-                var docName = doc.name.replace(/\.ai$/i, '');
+            DebugLogManager.info("[GET ITEMS] Found", matchingItems.length, "items matching:", partialName);
+            return matchingItems;
 
-                // Define default log paths
-                var defaultSuccessLogPath = docPath + "/" + docName + "_output_log.txt";
-                var defaultErrorLogPath = docPath + "/" + docName + "_error_log.txt";
+        } catch (e) {
+            DebugLogManager.error("[GET ITEMS] Error retrieving items:", e.toString());
+            return [];
+        }
+    },
 
-                // Use provided filePath if available, otherwise use the default success log path
-                var logFilePath = filePath || defaultSuccessLogPath;
+    reverseArray: function (arr) {
+        var reversed = [];
+        for (var i = arr.length - 1; i >= 0; i--) {
+            reversed.push(arr[i]);
+        }
+        return reversed;
+    },
 
-                DebugLogManager.info("Writing log to:", logFilePath);
-
-                // Open log file and write output
-                var file = new File(logFilePath);
-                file.encoding = "UTF-8";
-                file.open("a");
+    /**
+     * Generates the output string from all logged data
+     * @returns {String} The formatted output string
+     */
+    generateOutput: function() {
+        try {
+            DebugLogManager.info("Generating output");
+            var output = '';
             
-                var output = this.generateOutput();
+            // Document level information
+            output += LOG_KEYS.DOC_PATH + ': ' + this._data[LOG_KEYS.DOC_PATH] + '\n';
+            output += LOG_KEYS.DOC_NAME + ': ' + this._data[LOG_KEYS.DOC_NAME] + '\n';
+            output += LOG_KEYS.EXPORT_PATH + ': ' + this._data[LOG_KEYS.EXPORT_PATH] + '\n';
+            output += LOG_KEYS.LAYER_COUNT + ': ' + this._data[LOG_KEYS.LAYER_COUNT] + '\n';
+            
+            // Layer information
+            for (var i = 0; i < this._layerData.length; i++) {
+                var layerInfo = this._layerData[i];
+                output += LOG_KEYS.LAYER_NAME + ': ' + layerInfo[LOG_KEYS.LAYER_NAME] + '\n';
+                output += LOG_KEYS.LAYER_CHARS + ': ' + layerInfo[LOG_KEYS.LAYER_CHARS] + '\n';
+            }
+            
+            // Target layer information
+            output += LOG_KEYS.TARGET_FOUND + ': ' + this._data[LOG_KEYS.TARGET_FOUND] + '\n';
+            output += LOG_KEYS.AREA_POINTS + ': ' + this._data[LOG_KEYS.AREA_POINTS] + ' square points\n';
+            output += LOG_KEYS.AREA_MM + ': ' + this._data[LOG_KEYS.AREA_MM] + '\n';
+            output += LOG_KEYS.AREA_CM + ': ' + this._data[LOG_KEYS.AREA_CM] + '\n';
+            output += LOG_KEYS.HEIGHT_POINTS + ': ' + this._data[LOG_KEYS.HEIGHT_POINTS] + '\n';
+            output += LOG_KEYS.HEIGHT_MM + ': ' + this._data[LOG_KEYS.HEIGHT_MM] + '\n';
 
-                // Append error message if provided
-                if (errorMessage) {
-                    output += "\n\n=== ERROR DETAILS ===\n" + errorMessage + "\n";
+            // Calculate total LED count from the LED layer if available
+            var doc = app.activeDocument;
+            var ledLayer = LayerManager.findLayerByName(doc, "LED");
+            if (ledLayer) {
+                var totalLEDCount = ledLayer.groupItems.length;
+                output += LOG_KEYS.LED_COUNT + ': ' + totalLEDCount + '\n';
+            }
+
+            // Shape measurements
+            if (this._data.shapes && this._data.shapes.length > 0) {
+                output += "\n=== SHAPE MEASUREMENTS ===\n";
+                
+                for (var i = 0; i < this._data.shapes.length; i++) {
+                    var index = ("000" + (i + 1)).slice(-3);  // Pad with leading zeros
+                    var shape = this._data.shapes[i];
+                    
+                    output += "\n--- Shape " + index + " ---\n";
+                    output += LOG_KEYS.SHAPE_NAME_ROOT + index + ": " + shape.name + "\n";
+                    
+                    // Width measurements
+                    output += LOG_KEYS.SHAPE_WIDTH_PT + index + ": " + shape.width.pt.toFixed(2) + "\n";
+                    output += LOG_KEYS.SHAPE_WIDTH_MM + index + ": " + shape.width.mm.toFixed(2) + "\n";
+                    output += LOG_KEYS.SHAPE_WIDTH_CM + index + ": " + shape.width.cm.toFixed(2) + "\n";
+                    
+                    // Height measurements
+                    output += LOG_KEYS.SHAPE_HEIGHT_PT + index + ": " + shape.height.pt.toFixed(2) + "\n";
+                    output += LOG_KEYS.SHAPE_HEIGHT_MM + index + ": " + shape.height.mm.toFixed(2) + "\n";
+                    output += LOG_KEYS.SHAPE_HEIGHT_CM + index + ": " + shape.height.cm.toFixed(2) + "\n";
+                    
+                    // Area measurements
+                    output += LOG_KEYS.SHAPE_AREA_PTSQ + index + ": " + shape.area.pt.toFixed(2) + "\n";
+                    output += LOG_KEYS.SHAPE_AREA_MMSQ + index + ": " + shape.area.mm.toFixed(2) + "\n";
+                    output += LOG_KEYS.SHAPE_AREA_CMSQ + index + ": " + shape.area.cm.toFixed(2) + "\n";
+                    
+                    // LED count
+                    output += LOG_KEYS.SHAPE_LED_COUNT + index + ": " + shape.ledCount + "\n";
                 }
+            } else {
+                output += "\n🚨 No shape measurements found. 🚨\n";
+            }
 
-                file.write(output);
-                file.close();
-
-                DebugLogManager.info("Log successfully written to:", logFilePath);
-                return true;
-            } catch (e) {
-                DebugLogManager.error("Error writing log:", e.toString());
-
-                // Attempt to write an error log instead
-                try {
-                    DebugLogManager.info("Attempting to write error log to:", defaultErrorLogPath);
-                    var errorFile = new File(defaultErrorLogPath);
-                    errorFile.encoding = "UTF-8";
-                    errorFile.open("w");
-
-                    var errorContent = "Error encountered while writing log:\n" + e.toString();
-                    if (errorMessage) {
-                        errorContent += "\n\nOriginal Error:\n" + errorMessage;
-                    }
-
-                    errorFile.write(errorContent);
-                    errorFile.close();
-
-                    DebugLogManager.info("Error log successfully written to:", defaultErrorLogPath);
-                } catch (errorFileException) {
-                    DebugLogManager.error("Failed to write error log:", errorFileException.toString());
-                }
-
+            DebugLogManager.info("Output generated successfully");
+            return output;
+            
+        } catch (e) {
+            DebugLogManager.error("Error in generateOutput:", e.toString());
+            return '';
+        }
+    },
+        
+    /**
+     * Writes log data to a file, automatically handling success and error logs.
+     * 成功ログとエラーログを自動処理してログデータをファイルに書き込む。
+     *
+     * If `filePath` is provided, the log is written to that specific location.
+     * Otherwise, it defaults to writing the output log to `<document_path>/<document_name>_output_log.txt`.
+     * If an error occurs during writing, an error log is saved to `<document_path>/<document_name>_error_log.txt`.
+     * 
+     * `filePath` が指定された場合、そのパスにログを書き込む。
+     * それ以外の場合、デフォルトで `<document_path>/<document_name>_output_log.txt` にログを書き込む。
+     * 書き込み中にエラーが発生した場合は、 `<document_path>/<document_name>_error_log.txt` にエラーログを保存する。
+     *
+     * @param {string} [filePath] - (Optional) The file path to write the log. If omitted, the default path is used.
+     *                              (省略可能) ログを書き込むファイルパス。省略した場合はデフォルトのパスが使用される。
+     * @param {string} [errorMessage] - (Optional) Error message to include in the log if writing fails.
+     *                                  (省略可能) 書き込みに失敗した場合にログに含めるエラーメッセージ。
+     * @returns {boolean} `true` if writing was successful, `false` if an error occurred.
+     *                    書き込みが成功した場合は `true`、エラーが発生した場合は `false`。
+     */
+    writeToFile: function(filePath, errorMessage) {
+        try {
+            var doc = app.activeDocument;
+            if (!doc) {
+                DebugLogManager.error("No active document found.");
                 return false;
             }
-        }
 
-    };
+            // Extract document path and name (excluding .ai extension)
+            var docPath = doc.path;
+            var docName = doc.name.replace(/\.ai$/i, '');
+
+            // Define default log paths
+            var defaultSuccessLogPath = docPath + "/" + docName + "_output_log.txt";
+            var defaultErrorLogPath = docPath + "/" + docName + "_error_log.txt";
+
+            // Use provided filePath if available, otherwise use the default success log path
+            var logFilePath = filePath || defaultSuccessLogPath;
+
+            DebugLogManager.info("Writing log to:", logFilePath);
+
+            // Initialize file in write mode to clear it
+            var file = new File(logFilePath);
+            file.encoding = "UTF-8";
+            file.open("w");
+            
+            // Create formatted timestamp
+            var now = new Date();
+            var timestamp = now.getFullYear() + "-" + 
+                            ("0" + (now.getMonth() + 1)).slice(-2) + "-" + 
+                            ("0" + now.getDate()).slice(-2) + " " +
+                            ("0" + now.getHours()).slice(-2) + ":" +
+                            ("0" + now.getMinutes()).slice(-2) + ":" +
+                            ("0" + now.getSeconds()).slice(-2);
+            
+            file.writeln("/* Log generated at: " + timestamp + " */\n");
+
+            // Generate and write output
+            var output = this.generateOutput();
+
+            // Append error message if provided
+            if (errorMessage) {
+                output += "\n\n=== ERROR DETAILS ===\n" + errorMessage + "\n";
+            }
+
+            file.write(output);
+            file.close();
+
+            DebugLogManager.info("Log successfully written to:", logFilePath);
+            return true;
+
+        } catch (e) {
+            DebugLogManager.error("Error writing log:", e.toString());
+
+            // Attempt to write an error log instead
+            try {
+                DebugLogManager.info("Attempting to write error log to:", defaultErrorLogPath);
+                var errorFile = new File(defaultErrorLogPath);
+                errorFile.encoding = "UTF-8";
+                errorFile.open("w");
+
+                // Create formatted timestamp for error log
+                var errorNow = new Date();
+                var errorTimestamp = errorNow.getFullYear() + "-" + 
+                                    ("0" + (errorNow.getMonth() + 1)).slice(-2) + "-" + 
+                                    ("0" + errorNow.getDate()).slice(-2) + " " +
+                                    ("0" + errorNow.getHours()).slice(-2) + ":" +
+                                    ("0" + errorNow.getMinutes()).slice(-2) + ":" +
+                                    ("0" + errorNow.getSeconds()).slice(-2);
+
+                var errorContent = "/* Error Log generated at: " + errorTimestamp + " */\n\n";
+                errorContent += "Error encountered while writing log:\n" + e.toString();
+                if (errorMessage) {
+                    errorContent += "\n\nOriginal Error:\n" + errorMessage;
+                }
+
+                errorFile.write(errorContent);
+                errorFile.close();
+
+                DebugLogManager.info("Error log successfully written to:", defaultErrorLogPath);
+            } catch (errorFileException) {
+                DebugLogManager.error("Failed to write error log:", errorFileException.toString());
+            }
+
+            return false;
+        }
+    }
+
+};
 
     // Export Manager
     var ExportManager = {
@@ -1898,32 +1848,39 @@ var LogManager = {
          * @param {Document} doc - The active Illustrator document. / 処理対象の Illustrator ドキュメント。
          * @returns {Object|null} Initialization result containing layers and items. / 初期化結果（レイヤーとアイテム）。
          */
-        initialize: function (doc,layerChars) {
+        initialize: function(doc, layerChars) {
             try {
                 DebugLogManager.info("[INIT] Initializing processing...");
 
-                var doc = DocumentManager._doc;
-                PreferencesManager.init();
-                DocumentManager.handleLegacyText();
-                LogManager.init();
-                LayerManager.init();
-        
-                // ✅ Store target layer information;
-                LayerManager._targetLayer = LayerManager.findLayerByChars(doc, layerChars);
-
-                var ledLayer = LayerManager._ledLayer; 
-                var partsLayer = LayerManager._targetLayer;
-                var tempLayer = LayerManager._tempLayer;
-
-                if (!ledLayer || !partsLayer || !tempLayer) {
-                    DebugLogManager.error("[ERROR] Required layers are missing. Terminating.");
-                    return null;
+                if (!doc) {
+                    throw new Error("No document provided");
                 }
 
+                // Find required layers
+                var ledLayer = LayerManager.findLayerByName(doc, "LED");
+                var partsLayer = LayerManager.findLayerByChars(doc, layerChars);
+                
+                if (!ledLayer) {
+                    throw new Error("LED layer not found");
+                }
+                if (!partsLayer) {
+                    throw new Error("Parts layer not found");
+                }
+
+                DebugLogManager.info("[INIT] Found required layers");
+
+                // Create temp layer
+                var tempLayer = doc.layers.add();
+                tempLayer.name = "Temp_Union_Layer";
+                DebugLogManager.info("[INIT] Created temp layer");
+
+                // Move and sort items
                 var sortedLEDs = LayerManager.moveSortedLeds(ledLayer, tempLayer);
                 var sortedParts = LayerManager.moveSortedParts(partsLayer, tempLayer);
 
-                DebugLogManager.info("[INFO] Initialization complete: " + tempLayer + " " + ledLayer + " " + partsLayer);
+                DebugLogManager.info("[INIT] Sorted LEDs count: " + sortedLEDs.length);
+                DebugLogManager.info("[INIT] Sorted Parts count: " + sortedParts.length);
+
                 return {
                     tempLayer: tempLayer,
                     ledLayer: ledLayer,
@@ -1933,7 +1890,7 @@ var LogManager = {
                 };
 
             } catch (error) {
-                DebugLogManager.error("Failed to initialize processing:", error);
+                DebugLogManager.error("[INIT] Failed to initialize processing: " + error);
                 return null;
             }
         },
@@ -2064,6 +2021,7 @@ function showTargetLayerSelectionDialog() {
     }
     return null;
 }
+
 /*
 // Use it like this:
 var selectedOption = showTargetLayerSelectionDialog();
@@ -2076,42 +2034,146 @@ function main() {
     try {
         var funName = "[MAIN] ";
         DebugLogManager.info(funName + "Starting main processing...");
-        //var targetLayerName = showTargetLayerSelectionDialog();
+        
+        // Get document and verify
+        var doc = app.activeDocument;
+        if (!doc) {
+            throw new Error("No active document found");
+        }
+        DebugLogManager.info(funName + "Document found: " + doc.name);
+
+        // Initialize managers in order
+        PreferencesManager.init();
+        LogManager.init();
+        
+        // Document info - with explicit path handling
+        LogManager._data[LOG_KEYS.DOC_PATH] = doc.path ? doc.path.toString() : "";
+        LogManager._data[LOG_KEYS.DOC_NAME] = doc.name;
+        LogManager._data[LOG_KEYS.LAYER_COUNT] = doc.layers.length;
+        DebugLogManager.info(funName + "Basic document info logged");
+
+        // Initialize layers
         var targetLayerName = "支給データ";
         var targetChars = LayerManager.stringToCharCodes(targetLayerName);
-        var doc = DocumentManager.getActiveDocument;
-        // ✅ Initialize processing
-        var initData = ProcessingManager.initialize(doc,targetChars);
+        DebugLogManager.info(funName + "Target layer chars: " + targetChars);
+
+        // Initialize processing and verify each component
+        var initData = ProcessingManager.initialize(doc, targetChars);
         if (!initData) {
-            DebugLogManager.error(funName + "Initialization failed. Logging error.");
-            LogManager.writeToFile(null, funName + "Failed to initialize processing for: " + doc.name);
-            return false;
+            throw new Error("ProcessingManager initialization failed");
         }
 
-        // ✅ Store processing results
-        LogManager._data.results = ProcessingManager.executeProcessing(initData);
+        DebugLogManager.info(funName + "Checking initialized layers...");
+        if (!initData.partsLayer) {
+            throw new Error("Parts layer not found");
+        }
+        if (!initData.ledLayer) {
+            throw new Error("LED layer not found");
+        }
+        if (!initData.tempLayer) {
+            throw new Error("Temp layer not found");
+        }
 
-        // ✅ Store shape measurements
-        //LogManager._data.shapes = PathManager.getShapeMeasurements(LogManager._data.parts, LogManager._data.results);
+        // Log target layer info
+        LogManager._data[LOG_KEYS.TARGET_FOUND] = initData.partsLayer.name;
+        DebugLogManager.info(funName + "Target layer found: " + initData.partsLayer.name);
 
+        // Calculate and verify areas
+        var area = LayerManager.getLayerArea(initData.partsLayer);
+        DebugLogManager.info(funName + "Calculated area: " + area);
+        
+        LogManager._data[LOG_KEYS.AREA_POINTS] = area.toFixed(10);
+        LogManager._data[LOG_KEYS.AREA_MM] = (area / 2.834645 / 2.834645).toFixed(2);
+        LogManager._data[LOG_KEYS.AREA_CM] = (parseFloat(LogManager._data[LOG_KEYS.AREA_MM]) / 100).toFixed(2);
 
-        // ✅ Write the log file
+        // Calculate and verify heights
+        var height = LayerManager.getMaxHeight(initData.partsLayer);
+        DebugLogManager.info(funName + "Calculated height: " + height);
+        
+        LogManager._data[LOG_KEYS.HEIGHT_POINTS] = height;
+        LogManager._data[LOG_KEYS.HEIGHT_MM] = (height / 2.834645).toFixed(2);
+        LogManager._data[LOG_KEYS.HEIGHT_CM] = (parseFloat(LogManager._data[LOG_KEYS.HEIGHT_MM]) / 100).toFixed(2);
+
+        // Process parts and LEDs
+        DebugLogManager.info(funName + "Processing parts and LEDs...");
+        var results = ProcessingManager.executeProcessing(initData);
+        if (!results) {
+            throw new Error("Failed to process parts and LEDs");
+        }
+        LogManager._data.results = results;
+
+        // Store shape measurements with verification
+        LogManager._data.shapes = [];
+        DebugLogManager.info(funName + "Processing shape measurements...");
+        DebugLogManager.info(funName + "Number of sorted parts: " + (initData.sortedParts ? initData.sortedParts.length : 0));
+
+        if (initData.sortedParts && initData.sortedParts.length > 0) {
+            for (var i = 0; i < initData.sortedParts.length; i++) {
+                var part = initData.sortedParts[i];
+                var index = i + 1;
+                
+                // Get measurements
+                var width = PathManager.getPathWidth(part);
+                var height = PathManager.getPathHeight(part);
+                var area = PathManager.getPathArea(part);
+                var ledCount = results[part.name] ? results[part.name].ledCount : 0;
+
+                // Store in LogManager._data for the shape-specific keys
+                // Format index with leading zeros (e.g., "001", "002", etc.)
+                var paddedIndex = ("000" + index).slice(-3);
+                
+                LogManager._data[LOG_KEYS.SHAPE_NAME_ROOT + paddedIndex] = part.name;
+                LogManager._data[LOG_KEYS.SHAPE_WIDTH_PT + paddedIndex] = width.pt.toFixed(2);
+                LogManager._data[LOG_KEYS.SHAPE_WIDTH_MM + paddedIndex] = width.mm.toFixed(2);
+                LogManager._data[LOG_KEYS.SHAPE_WIDTH_CM + paddedIndex] = width.cm.toFixed(2);
+                LogManager._data[LOG_KEYS.SHAPE_HEIGHT_PT + paddedIndex] = height.pt.toFixed(2);
+                LogManager._data[LOG_KEYS.SHAPE_HEIGHT_MM + paddedIndex] = height.mm.toFixed(2);
+                LogManager._data[LOG_KEYS.SHAPE_HEIGHT_CM + paddedIndex] = height.cm.toFixed(2);
+                LogManager._data[LOG_KEYS.SHAPE_AREA_PTSQ + paddedIndex] = area.pt.toFixed(2);
+                LogManager._data[LOG_KEYS.SHAPE_AREA_MMSQ + paddedIndex] = area.mm.toFixed(2);
+                LogManager._data[LOG_KEYS.SHAPE_AREA_CMSQ + paddedIndex] = area.cm.toFixed(2);
+                LogManager._data[LOG_KEYS.SHAPE_LED_COUNT + paddedIndex] = ledCount;
+
+                // Also store in shapes array for easy access
+                var shapeData = {
+                    name: part.name,
+                    width: width,
+                    height: height,
+                    area: area,
+                    ledCount: ledCount
+                };
+                
+                LogManager._data.shapes.push(shapeData);
+                DebugLogManager.info(funName + "Added shape data for: " + part.name +
+                    " Area (mm²): " + area.mm.toFixed(2));
+            }
+        } else {
+            DebugLogManager.error(funName + "No sorted parts found to process");
+        }
+
+        // Set export path
+        var exportPath = doc.path + "/" + doc.name.replace(/\.ai$/i, '') + "_output_log.txt";
+        LogManager._data[LOG_KEYS.EXPORT_PATH] = exportPath;
+        DebugLogManager.info(funName + "Set export path: " + exportPath);
+
+        // Write output file
         var success = LogManager.writeToFile();
         if (!success) {
-            DebugLogManager.error(funName + "Failed to write output log.");
-            LogManager.writeToFile(null, funName + "Failed to write output log for: " + doc.name);
-            return false;
+            throw new Error("Failed to write output log");
         }
 
-        DebugLogManager.info(funName + "Processing completed successfully for:", doc.name);
+        DebugLogManager.info(funName + "Processing completed successfully");
         return true;
 
     } catch (e) {
-        DebugLogManager.error(funName + "Error processing document:", doc.name, e.toString());
-
-        // ✅ Log errors separately
-        LogManager.writeToFile(null, funName + "Error processing document: " + doc.name + "\n" + e.toString());
+        DebugLogManager.error(funName + "Error in execution: " + e.toString());
+        LogManager.writeToFile(null, "Error during processing: " + e.toString());
         return false;
+    } finally {
+        // Clean up temp layer if it exists
+        if (initData && initData.tempLayer) {
+            ProcessingManager.finalizeProcessing(initData.tempLayer);
+        }
     }
 }
 
