@@ -5,7 +5,7 @@
 var logFile = null; // Global log file variable for logging
 
 /**
- * Initializes the log file in the Desktop/extendscript-logs directory.
+ * Initializes the log file in the Desktop/ExtendScript-logs directory.
  */
 function initLogFile() {
     try {
@@ -47,11 +47,22 @@ function writeToLog() {
         logFile.open("a");
         logFile.encoding = "UTF-8";
         logFile.lineFeed = "Unix";
-        logFile.writeln(new Date() + " - " + message);
+        logFile.writeln(new Date() + " - " + message + "\n\n");
         logFile.close();
     } catch (error) {
         alert("Error writing to log: " + error.message);
     }
+}
+
+// ExtendScript-Compatible Alternative
+function serialize(obj) {
+    var str = "{";
+    for (var key in obj) {
+        if (obj.hasOwnProperty(key)) {
+            str += key + ": " + obj[key] + ", ";
+        }
+    }
+    return str.slice(0, -2) + "}";
 }
 
 // Debug Log Manager
@@ -134,16 +145,6 @@ var DebugLogManager = {
     }
 };
 
-/*
-// Example usage in code:
-try {
-    DebugLogManager.info("Starting process");
-    // ... code ...
-    DebugLogManager.debug("Technical detail:", someObject);
-} catch(e) {
-    DebugLogManager.error("Process failed:", e);
-}
-*/
 
 // Constants
 var LOG_KEYS = {
@@ -159,6 +160,7 @@ var LOG_KEYS = {
     AREA_CM: 'Area (cmsq)',
     HEIGHT_POINTS: 'Max Height (points)',
     HEIGHT_MM: 'Max Height (mm)',
+    HEIGHT_CM: 'Max Height (cm)',
     LED_COUNT: 'LED Group Count',
     
 /****
@@ -177,25 +179,26 @@ var LOG_KEYS = {
  * target_height_2: Number
  * etc...
 */
-    SHAPE_NAME_ROOT: 'target_name_',
-    SHAPE_PATH: 'target_path_',
-    SHAPE_HEIGHT_PT: 'target_height_(points)_',
-    SHAPE_HEIGHT_MM: 'target_height_(mm)_',
-    SHAPE_HEIGHT_CM: 'target_height_(cm)_',
-    SHAPE_WIDTH_PT: 'target_width_(points)_',
-    SHAPE_WIDTH_MM: 'target_width_(mm)_',
-    SHAPE_WIDTH_CM: 'target_width_(cm)_',
-    SHAPE_AREA_PTSQ: 'target_area_(pointssq)_',
-    SHAPE_AREA_MMSQ: 'target_area_(mmsq)_',
-    SHAPE_AREA_CMSQ: 'target_area_(cmsq)_',
-    SHAPE_LED_COUNT: 'target_leds_',
-    SHAPE_LED_CONFIDENCE: 'target_leds_conf_',
-    SHAPE_PNG_PATH: 'target_png_path_',
-    SHAPE_POS_PNG_PATH: 'target_pos_png_path_',
-    SHAPE_LEDS_PNG_PATH: 'target_leds_png_path_',
-    SHAPE_B64_PATH: 'target_b64_path_',
-    SHAPE_POS_B64_PATH: 'target_pos_b64_path_',
-    SHAPE_LEDS_B64_PATH: 'target_leds_b64_path_'
+    SHAPE_NAME_ROOT: 'Part_',
+    SHAPE_PATH: 'Part_path_',
+    SHAPE_HEIGHT_PT: 'Part_height_(pt)_',
+    SHAPE_HEIGHT_MM: 'Part_height_(mm)_',
+    SHAPE_HEIGHT_CM: 'Part_height_(cm)_',
+    SHAPE_WIDTH_PT: 'Part_width_(pt)_',
+    SHAPE_WIDTH_MM: 'Part_width_(mm)_',
+    SHAPE_WIDTH_CM: 'Part_width_(cm)_',
+    SHAPE_AREA_PTSQ: 'Part_area_(ptsq)_',
+    SHAPE_AREA_MMSQ: 'Part_area_(mmsq)_',
+    SHAPE_AREA_CMSQ: 'Part_area_(cmsq)_',
+    SHAPE_LED_COUNT: 'Part_led_count_',
+    SHAPE_LED_LIST: 'Part_led_list_',
+    SHAPE_LED_CONFIDENCE: 'Part_leds_conf_',
+    SHAPE_PNG_PATH: 'Part_png_path_',
+    SHAPE_POS_PNG_PATH: 'Part_pos_png_path_',
+    SHAPE_LEDS_PNG_PATH: 'Part_leds_png_path_',
+    SHAPE_B64_PATH: 'Part_b64_path_',
+    SHAPE_POS_B64_PATH: 'Part_pos_b64_path_',
+    SHAPE_LEDS_B64_PATH: 'Part_leds_b64_path_'
 
 };
 
@@ -220,22 +223,16 @@ var PreferencesManager = {
         DebugLogManager.info("Setting text preferences...");
         
         // Set preferences in a defined order with error checking
-        if (app.preferences) {
+        if (app.preferences){
             app.preferences.setIntegerPreference('ShowLegacyTextDialog', 0);
             app.preferences.setBooleanPreference('ShowLegacyTextDialog', false);
             app.preferences.setIntegerPreference('AutoUpdateLegacyText', 1);
             app.preferences.setBooleanPreference('AutoUpdateLegacyText', true);
+            DebugLogManager.info("app.preferences set successfully.")
         } else {
-            DebugLogManager.error("app.preferences is not available");
+            DebugLogManager.error("app.preferences is not available: ", e.toString());
         }
-
-        if (app.textPreferences) {
-            app.textPreferences.showLegacyTextWarning = false;
-            app.textPreferences.updateLegacyText = true;
-            DebugLogManager.info("Text preferences set successfully");
-        } else {
-            DebugLogManager.error("app.textPreferences is not available");
-        }
+        
     } catch(e) {
         DebugLogManager.error("Error setting text preferences:", e.toString());
     }
@@ -249,33 +246,522 @@ var PreferencesManager = {
     }
 };
 
-// Document Manager
-var DocumentManager = {
-    getActiveDocument: function () {
-        DebugLogManager.info("DocumentManager.getActiveDocument...");
-        if (app.documents.length === 0) return null;
-        return app.activeDocument;
+/**
+ * SortingManager - Sorts items based on their position using a grid-based approach.
+ * 
+ * @param {Array} items - Array of Illustrator items to sort.
+ * @param {Number} xTolerance - Tolerance value for x-position to group items into columns.
+ * @returns {Array} - Sorted array of items.
+ */
+var SortingManager = {
+    sortPartsByGrid: function (parts, xTolerance) {
+        return this.sortByGrid(parts, xTolerance);
+    },
+    sortLEDsByGrid: function (leds, xTolerance) {
+        return this.sortByGrid(leds, xTolerance);
+    },
+    sortByGrid: function (items, xTolerance) {
+        xTolerance = xTolerance || 20;
+        
+        // Create array of items with their positions
+        var itemsWithPos = [];
+        for (var i = 0; i < items.length; i++) {
+            itemsWithPos.push({
+                item: items[i],
+                x: items[i].position[0],
+                y: items[i].position[1]
+            });
+        }
+        
+        // First, group items into columns
+        var columns = {};    // Object to hold columns
+        var columnKeys = []; // Array to track column x-positions
+        
+        // Group items into columns based on x-position
+        for (var i = 0; i < itemsWithPos.length; i++) {
+            var itemData = itemsWithPos[i];
+            var foundColumn = false;
+            
+            // Check if this item belongs to an existing column
+            for (var j = 0; j < columnKeys.length; j++) {
+                if (Math.abs(itemData.x - columnKeys[j]) <= xTolerance) {
+                    var key = columnKeys[j].toString();
+                    columns[key].push(itemData);
+                    foundColumn = true;
+                    break;
+                }
+            }
+            
+            // If no matching column found, create new column
+            if (!foundColumn) {
+                var newKey = itemData.x.toString();
+                columnKeys.push(itemData.x);
+                columns[newKey] = [itemData];
+            }
+        }
+        
+        // Sort column keys from left to right
+        columnKeys.sort(function(a, b) {
+            return a - b;
+        });
+        
+        // Sort items within each column from top to bottom and combine results
+        var sortedItems = [];
+        for (var i = 0; i < columnKeys.length; i++) {
+            var columnKey = columnKeys[i].toString();
+            var columnItems = columns[columnKey];
+            
+            // Sort this column's items from top to bottom
+            columnItems.sort(function(a, b) {
+                return b.y - a.y;  // Larger Y value = higher = should come first
+            });
+            
+            // Add sorted items from this column to final array
+            for (var j = 0; j < columnItems.length; j++) {
+                sortedItems.push(columnItems[j].item);
+            }
+        }
+        
+        return sortedItems;
+    }
+};
+
+/**
+ * Manages detection of overlapping items using both bounding box and refined geometry checks.
+ * 境界ボックスと詳細な形状チェックの両方を使用して、アイテムの重なりを検出する。
+ */
+var OverlapDetectionManager = {
+     /**
+     * Retrieves the bounding box of a given item.
+     * 指定されたアイテムのバウンディングボックスを取得する。
+     *
+     * @param {PageItem} item - The Illustrator item to analyze. / 解析する Illustrator のアイテム。
+     * @returns {Object} Bounding box dimensions {x, y, width, height}. / バウンディングボックスの寸法 {x, y, width, height}。
+     */
+    getBoundingBox: function (item) {
+        var bounds, x, y, width, height;
+
+        try {
+            if (!item || !item.visibleBounds) {
+                throw new Error("[ERROR] Invalid item provided to getBoundingBox / 無効なアイテムが getBoundingBox に提供されました");
+            }
+
+            bounds = item.visibleBounds; // [left, top, right, bottom]
+
+            x = bounds[0]; // Left
+            y = bounds[1]; // Top
+            width = bounds[2] - bounds[0]; // Right - Left
+            height = Math.abs(bounds[3] - bounds[1]); // Bottom - Top (absolute to avoid negative height)
+
+            //DebugLogManager.info("[OverlapDetectionManager] Bounding Box for '" + item.name + "' → X:", x, " Y:", y, " Width:", width, " Height:", height);
+
+        } catch (error) {
+            DebugLogManager.error("[OverlapDetectionManager] Failed to get bounding box for item: " + (item.name || "Unnamed") + " - " + error);
+            return null;
+        }
+
+        return { x: x, y: y, width: width, height: height };
+    },
+
+    /**
+     * Checks if two bounding boxes overlap.
+     * 2 つのバウンディングボックスが重なっているかをチェックする。
+     *
+     * @param {Object} box1 - First bounding box {x, y, width, height}. / 最初のバウンディングボックス {x, y, width, height}。
+     * @param {Object} box2 - Second bounding box {x, y, width, height}. / 2 番目のバウンディングボックス {x, y, width, height}。
+     * @returns {boolean} True if overlapping, false otherwise. / 重なっていれば true、そうでなければ false。
+     */
+    isBoundingBoxOverlapping: function (box1, box2) {
+        try {
+            if (!box1 || !box2) {
+                throw new Error("[ERROR] Invalid bounding boxes provided to isBoundingBoxOverlapping / 無効なバウンディングボックスが提供されました");
+            }
+
+            var overlap = !(
+                box1.x + box1.width < box2.x ||  // Box1's right edge is left of Box2's left edge
+                box2.x + box2.width < box1.x ||  // Box2's right edge is left of Box1's left edge
+                box1.y - box1.height > box2.y || // Box1's bottom is above Box2's top
+                box2.y - box2.height > box1.y    // Box2's bottom is above Box1's top
+            );
+
+            //DebugLogManager.info("[OverlapDetectionManager] Bounding Box Overlap Check → Result:", overlap);
+            return overlap;
+
+        } catch (error) {
+            DebugLogManager.error("[OverlapDetectionManager] Failed bounding box overlap check: " + error);
+            return false;
+        }
     },
     
-    handleLegacyText: function() {
-        DebugLogManager.info("DocumentManager.handleLegacyText...");
+    /**
+     * Identifies candidate LED items using a simple bounding box overlap check.
+     * シンプルな境界ボックスの重なりチェックを使用して、候補となる LED アイテムを識別する。
+     *
+     * @param {PathItem|CompoundPathItem} partItem - The target part item. / 対象のパーツアイテム。
+     * @param {Array} ledItems - The list of LED group items. / LED グループアイテムのリスト。
+     * @returns {Array} The list of LEDs that pass the bounding box check. / 境界ボックスチェックを通過した LED のリスト。
+     */
+    simpleBoundingBoxOverlap: function (partItems, ledItems) {
+        var candidateLEDs = {};
+        for (var j = 0; j < partItems.length; j++) {
+            var part = partItems[j];
+            var partName = part.name;
+
+            for (var i = 0; i < ledItems.length; i++) {
+                var led = ledItems[i];
+                var ledName = led.name;
+
+                if (this.isBoundingBoxOverlapping(this.getBoundingBox(led), this.getBoundingBox(part))) {
+                    if (!candidateLEDs[partName]) {
+                        candidateLEDs[partName] = [];
+                    }
+                    candidateLEDs[partName].push(ledName);
+                    DebugLogManager.info("Bounding box of " + ledName + " overlaps with bounding box of " + partName);
+                }
+            }
+        }
+        return candidateLEDs;
+    },
+
+    /**
+     * Refines the overlap by checking actual LED vertices inside the part.
+     * LED の頂点が Part の内部にあるかをチェックし、重なりを精査する。
+     *
+     * @param {Object} partsToLEDs - Mapping of part names to LED names. / Part 名と LED 名のマッピング。
+     * @param {Array} myPaths - Array of PathItems representing parts. / Part を表す PathItem の配列。
+     * @param {Array} myLeds - Array of GroupItems representing LEDs. / LED を表す GroupItem の配列。
+     * @returns {Object} Refined mapping of parts to LEDs with insideness percentages. / 精査された Part-LED マッピング（内部割合付き）。
+     */
+    refineOverlapWithGeometry: function (candidateLEDs, myParts, myLeds) {
+        var refinedCandidateLEDs = {};
+
         try {
-            var idupdate = charIDToTypeID('Updt');
-            var desc = new ActionDescriptor();
-            var idnull = charIDToTypeID('null');
-            desc.putPath(idnull, new File(app.activeDocument.fullName));
-            executeAction(idupdate, desc, DialogModes.NO);
-            return true;
+            DebugLogManager.info("[OverlapDetectionManager] Starting geometric overlap refinement...");
+
+            for (var partName in candidateLEDs) {
+                if (!candidateLEDs.hasOwnProperty(partName)) {
+                    continue;
+                }
+
+                var part = null;
+                for (var i = 0; i < myParts.length; i++) {
+                    if (myParts[i].name === partName) {
+                        part = myParts[i];
+                        break;
+                    }
+                }
+
+                if (!part) {
+                    DebugLogManager.warning("[OverlapDetectionManager] Path not found for " + partName);
+                    continue;
+                }
+
+                var partVertices = PathManager.getPathVertices(part);
+                refinedCandidateLEDs[partName] = [];
+
+                for (var i = 0; i < candidateLEDs[partName].length; i++) {
+                    var ledName = candidateLEDs[partName][i];
+
+                    var led = null;
+                    for (var j = 0; j < myLeds.length; j++) {
+                        if (myLeds[j].name === ledName) {
+                            led = myLeds[j];
+                            break;
+                        }
+                    }
+
+                    if (!led) {
+                        DebugLogManager.warning("[OverlapDetectionManager] LED not found for " + ledName);
+                        continue;
+                    }
+
+                    // 🔹 Get LED vertices using LEDManager
+                    var ledVertices = LEDManager.getLEDVertices(led);
+                    var insideCount = 0;
+
+                    for (var k = 0; k < ledVertices.length; k++) {
+                        if (this.isPointInPolygon(ledVertices[k], partVertices)) {
+                            insideCount++;
+                        }
+                    }
+
+                    var insidenessPercentage = (ledVertices.length > 0) ? (insideCount / ledVertices.length) * 100 : 0;
+                    if (insideCount > 0) {
+                        refinedCandidateLEDs[partName].push(ledName + " (" + insidenessPercentage.toFixed(2) + "% inside)");
+                    }
+                }
+            }
+
+            DebugLogManager.info("[OverlapDetectionManager] Geometric overlap refinement completed.");
+        
+        } catch (error) {
+            DebugLogManager.error("[OverlapDetectionManager] Error refining overlap: " + error);
+        }
+
+        return refinedCandidateLEDs;
+    },
+
+    /**
+     * Detects overlapping LED items by performing both bounding box and geometry-based filtering.
+     * 境界ボックスと形状ベースのフィルタリングの両方を実行して、重なりのある LED アイテムを検出する。
+     *
+     * @param {PathItem|CompoundPathItem} partItem - The target part item. / 対象のパーツアイテム。
+     * @param {Array} ledItems - The list of all LED items. / すべての LED アイテムのリスト。
+     * @returns {Array} The final list of LEDs that are confirmed to overlap. / 重なりが確認された LED の最終リスト。
+     */
+    detectOverlap: function (partItems, ledItems) {
+        try {
+            DebugLogManager.info("[INFO] Starting full overlap detection process for: " + partItems);
+
+            var candidateLEDs = this.simpleBoundingBoxOverlap(partItems, ledItems);
+            DebugLogManager.info("detectOverlap candidateLEDs: " + candidateLEDs);
+            var confirmedLEDs = this.refineOverlapWithGeometry(candidateLEDs, partItems, ledItems);
+            DebugLogManager.info("detectOverlap confirmedLEDs: " + confirmedLEDs);
+            
+            DebugLogManager.info("[INFO] Total confirmed overlapping LEDs: " + confirmedLEDs.length);
+            return confirmedLEDs;
+
+        } catch (error) {
+            DebugLogManager.error("[ERROR] Failed in detectOverlap: " + error);
+            return [];
+        }
+    },
+
+    /**
+     * Checks if a point is inside a polygon.
+     */
+    isPointInPolygon: function (point, vertices) {
+        var x = point[0], y = point[1];
+        var inside = false;
+
+        for (var i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+            var xi = vertices[i][0], yi = vertices[i][1];
+            var xj = vertices[j][0], yj = vertices[j][1];
+
+            var intersect = ((yi > y) !== (yj > y)) &&
+                (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+            if (intersect) inside = !inside;
+        }
+
+        return inside;
+    }
+
+};
+
+
+/**
+ * ItemIdentificationManager: Identifies Parts and LEDs in given layers.
+ * アイテム識別マネージャー: 指定されたレイヤー内の PartItem および LED を識別。
+ */
+var ItemIdentificationManager = {
+    
+    /**
+     * Recursively extracts all paths from an item in a flat list
+     * @param {Object} item - The item to extract paths from
+     * @returns {Array} Array of extracted PathItems and CompoundPathItems
+     */
+    extractPaths: function(item) {
+        try {
+            DebugLogManager.info("Starting path extraction for item type:", item.typename);
+            var collectedPaths = [];
+            var stack = [item];
+            
+            while (stack.length > 0) {
+                var currentItem = stack.pop();
+                
+                if (!currentItem) {
+                    continue;
+                }
+                
+                //DebugLogManager.info("Processing item of type:", currentItem.typename);
+                
+                if (currentItem.typename === "PathItem" || 
+                    currentItem.typename === "CompoundPathItem") {
+                    collectedPaths.push(currentItem);
+                    //DebugLogManager.info("Added path to collection");
+                    
+                } else if (currentItem.typename === "GroupItem" && currentItem.pageItems) {
+                    // Add all pageItems to the stack
+                    for (var i = 0; i < currentItem.pageItems.length; i++) {
+                        stack.push(currentItem.pageItems[i]);
+                    }
+                    DebugLogManager.info("Added", currentItem.pageItems.length, "group items to stack");
+                }
+            }
+            
+            DebugLogManager.info("Path extraction complete. Found", collectedPaths.length, "paths");
+            return collectedPaths;
+            
         } catch(e) {
-            // Log directly without using other logging functions
-            DebugLogManager.error("Legacy text handling failed:", e.toString());
+            DebugLogManager.error("Error in extractPaths:", e.toString());
+            return [];
+        }
+    },
+    
+    /**
+     * Identifies and sorts PartItems from a layer using `sortByPosition`.
+     * @param {Layer} partLayer - The layer containing parts
+     * @returns {Array} The sorted PartItems
+     */
+    identifyPartsAndSort: function(partLayer) {
+        try {
+            if (!partLayer) {
+                throw new Error("Invalid part layer");
+            }
+
+            DebugLogManager.info("Identifying PartItems in layer:", partLayer.name);
+            
+            // Extract all parts from the layer's contents
+            var parts = [];
+            for (var i = 0; i < partLayer.pageItems.length; i++) {
+                var extractedParts = this.extractPaths(partLayer.pageItems[i]);
+                for (var j = 0; j < extractedParts.length; j++) {
+                    parts.push(extractedParts[j]);
+                }
+            }
+
+            DebugLogManager.info("Found", parts.length, "parts before sorting");
+            
+            // Sort the collected paths
+            parts = SortingManager.sortPartsByGrid(parts);
+            
+            DebugLogManager.info("Identified and sorted", parts.length, "PartItems");
+            return parts;
+            
+        } catch(e) {
+            DebugLogManager.error("Failed to identify parts:", e.toString());
+            return [];
+        }
+    },
+
+    /**
+     * Identifies and sorts LED GroupItems from a layer.
+     * @param {Layer} ledLayer - The layer containing LED items
+     * @returns {Array} The sorted LED items
+     */
+    identifyLedsAndSort: function(ledLayer) {
+        var leds = [];
+        try {
+            if (!ledLayer) {
+                throw new Error("Invalid LED layer");
+            }
+
+            DebugLogManager.info("Identifying LED GroupItems in layer:", ledLayer.name);
+            for (var i = 0; i < ledLayer.groupItems.length; i++) {
+                leds.push(ledLayer.groupItems[i]);
+            }
+
+            leds = SortingManager.sortLEDsByGrid(leds);
+            DebugLogManager.info("Found and sorted", leds.length, "LED GroupItems");
+            
+        } catch(e) {
+            DebugLogManager.error("Failed to identify LEDs:", e.toString());
+        }
+        return leds;
+    }
+};
+
+// Document Manager
+var DocumentManager = {
+    _mngName: "[DOCUMENTMANAGER]",
+    _doc: app.activeDocument,
+
+    getActiveDocument: function () {
+        try {
+            var funName = this._mngName + ".getActiveDocument: ";
+            DebugLogManager.info(funName + "...");
+            var doc = app.activeDocument;
+            if (!doc) {
+                DebugLogManager.error(funName + "could not retrieve document. Returning null.");
+                return null;
+            }
+            return doc;
+        } catch (e) {
+            DebugLogManager.error(funName + "could not retrieve document: " + e.toString()); 
+            return null;
+        }
+    },
+    
+    /**
+     * Updates legacy text objects in the active Illustrator document without triggering dialog boxes.
+     * アクティブな Illustrator ドキュメント内のレガシーテキストオブジェクトを更新し、ダイアログを表示しないようにする。
+     *
+     * Illustrator does not provide a built-in legacy text update function.
+     * Instead, this function forces a reflow by slightly modifying and restoring text.
+     *
+     * Illustrator にはレガシーテキストの更新機能が組み込まれていない。
+     * そのため、この関数はテキストをわずかに変更して戻すことで、リフローを強制する。
+     *
+     * Dialog boxes are **completely suppressed** using `app.userInteractionLevel = DONTDISPLAYALERTS`.
+     * ダイアログは `app.userInteractionLevel = DONTDISPLAYALERTS` を使用して完全に抑制される。
+     *
+     * @returns {boolean} `true` if legacy text was updated successfully, `false` if an error occurred.
+     *                    レガシーテキストが正常に更新された場合は `true`、エラーが発生した場合は `false`。
+     */
+    handleLegacyText: function () {
+        try {
+            DebugLogManager.info("[INFO] Checking for legacy text items...");
+
+            // Suppress all Illustrator pop-ups
+            var originalInteractionLevel = app.userInteractionLevel;
+            app.userInteractionLevel = UserInteractionLevel.DONTDISPLAYALERTS;
+
+            var doc = app.activeDocument;
+            var textFrames = doc.textFrames;
+            var updatedCount = 0;
+
+            for (var i = 0; i < textFrames.length; i++) {
+                var textItem = textFrames[i];
+
+                // Force Illustrator to reprocess the text by adding/removing a space
+                var originalText = textItem.contents;
+                textItem.contents = originalText + " "; // Add a space
+                textItem.contents = originalText; // Revert to original
+            
+                updatedCount++;
+            }
+
+            DebugLogManager.info("[SUCCESS] Updated " + updatedCount + " legacy text items.");
+
+            // Restore user interaction level
+            app.userInteractionLevel = originalInteractionLevel;
+            return true;
+
+        } catch (e) {
+            DebugLogManager.error("[ERROR] Legacy text handling failed: " + e.toString());
+
+            // Ensure user interaction level is restored even on error
+            app.userInteractionLevel = UserInteractionLevel.DONTDISPLAYALERTS;
             return false;
         }
     }
 };
 
+
 // Layer Manager
 var LayerManager = {
+    _mngName: "[LAYERMANAGER]",
+    _targetLayer: null, // This is initialized in main 
+    _ledLayer: null,
+    _tempLayer: null,
+
+    init: function () {
+        var funName = this._mngName + "[init] "; 
+        DebugLogManager.info(funName + "Starting...");
+        try {
+            var doc = DocumentManager._doc;
+            var layerChars = this.stringToCharCodes("LED");
+            this._ledLayer = this.findLayerByChars(doc, layerChars);
+            this._tempLayer = DocumentManager._doc.layers.add();
+            this._tempLayer.name = "Temp_Union_Layer";
+            DebugLogManager.info(funName + "Added tempLayer " + this._tempLayer.name + " and _ledLayer " + this._ledLayer.name);
+            return true;
+        } catch (e) {
+            DebugLogManager.error(funName + "Caught exception: " + e.toString());
+            return false;
+        }
+    },
+
     findLayerByName: function (doc, name) {
         DebugLogManager.info("LayerManager.findLayerByName: doc = " + doc + ", name = " + name);
         for (var i = 0; i < doc.layers.length; i++) {
@@ -303,7 +789,7 @@ var LayerManager = {
     },
     
     compareCharArrays: function(arr1, arr2) {
-        DebugLogManager.info("LayerManager.compareCharArrays: arr1 = " + arr1 + ", arr2 = " + arr2);
+        //DebugLogManager.info("LayerManager.compareCharArrays: arr1 = " + arr1 + ", arr2 = " + arr2);
         if (arr1.length !== arr2.length) return false;
         for (var i = 0; i < arr1.length; i++) {
             if (arr1[i] !== arr2[i]) return false;
@@ -318,7 +804,7 @@ var LayerManager = {
             
             if (layer.pageItems && layer.pageItems.length > 0) {
                 for (var i = 0; i < layer.pageItems.length; i++) {
-                    totalArea += PathManager.getPathArea(layer.pageItems[i]);
+                    totalArea += PathManager.getPathArea(layer.pageItems[i]).pt;
                 }
             }
             
@@ -333,337 +819,1304 @@ var LayerManager = {
             DebugLogManager.error("Error calculating layer area:", e.toString());
             return 0;
         }
+    },
+    /**
+     * Converts a string to an array of character codes
+     * @param {string} str - The string to convert
+     * @returns {number[]} Array of character codes
+     */
+    stringToCharCodes: function (str) {
+        try {
+            var codes = [];
+            for (var i = 0; i < str.length; i++) {
+                codes.push(str.charCodeAt(i));
+            }
+            return codes;
+        } catch (error) {
+            $.writeln("Error converting string to char codes: " + error);
+            return null;
+        }
+    },
+
+    /**
+     * Converts array of character codes back to a string (for validation/debugging)
+     * @param {number[]} codes - Array of character codes
+     * @returns {string} The reconstructed string
+     */
+    charCodesToString: function(codes) {
+        try {
+            return String.fromCharCode.apply(null, codes);
+        } catch (error) {
+            $.writeln("Error converting char codes to string: " + error);
+            return null;
+        }
+    },
+
+    moveSortedParts: function (sourceLayer, tempLayer) {
+        try {
+            var parts = [];
+            parts = ItemIdentificationManager.identifyPartsAndSort(sourceLayer);
+            DebugLogManager.info("IdentificationManager.identifyPartsAndSort: " + sourceLayer.name + " parts: " + parts);
+
+            var movedParts = [];
+            LogManager._data.parts = [];
+
+            // ✅ Parts are already sorted correctly, reverse the iteration order
+            for (var i = parts.length - 1; i >= 0; i--) {
+                var newPart = parts[i].duplicate(tempLayer);
+                movedParts.push(newPart);
+
+                var num = parts.length - i; // ✅ Ensure numbering starts from 1
+                var numStr = "00000" + num; // ✅ Add leading zeros
+                var partNumber = numStr.slice(-5); // ✅ Extract last 4 characters
+
+                newPart.name = "Part_" + partNumber; // ✅ Assign correct name
+
+                // ✅ Store reference for later use
+                LogManager._data.parts.push(newPart);
+            }
+ 
+
+            return movedParts;
+        } catch (e) {
+            DebugLogManager.error("Error in moveSortedParts: movedParts " + movedParts + e);
+            return [];
+        }
+
+        return movedParts;
+    },
+
+
+    moveSortedLeds: function (ledLayer, tempLayer) {
+        try {
+            var leds = [];
+            leds = ItemIdentificationManager.identifyLedsAndSort(ledLayer);
+            DebugLogManager.info("IdentificationManager.identifyLedsAndSort: " + ledLayer.name + " leds: " + leds);
+
+            var movedLeds = [];
+            LogManager._data.leds = []; // ✅ Store LEDs here
+
+            // ✅ Iterate in reverse order to preserve stacking order in tempLayer
+            for (var i = leds.length - 1; i >= 0; i--) {
+                var newLed = leds[i].duplicate(tempLayer);
+                movedLeds.push(newLed);
+
+                var num = leds.length - i; // ✅ Ensure numbering starts from 1
+                var numStr = "00000" + num; // ✅ Add leading zeros
+                var ledNumber = numStr.slice(-5); // ✅ Extract last 5 characters
+
+                newLed.name = "LED_" + ledNumber; // ✅ Assign correct name
+
+                // ✅ Store reference for later use
+                LogManager._data.leds.push(newLed);
+            }
+
+
+
+        return movedLeds;
+            // Already sorted when identified and duplicated above
+            /*
+            var sortedLeds = [];
+            sortedLeds = SortingManager.sortByGrid(movedLeds);
+            for (var i = 0; i < sortedLeds.length; i++) {
+                sortedLeds[i].name = "Part_" + (i + 1);
+            }
+            */
+
+        } catch (e) {
+            DebugLogManager.error("Error in moveSortedParts: movedLeds " + movedLeds + e);
+            return [];
+        }
+
+        return movedLeds;
+    },
+
+
+    /**
+     * Moves items from the source layer to the tempLayer and sorts them using grid sorting.
+     * アイテムをソースレイヤーから一時レイヤーへ移動し、グリッドソートを適用する。
+     * 
+     * @param {Layer} sourceLayer - The source layer containing items. / アイテムを含むソースレイヤー。
+     * @param {Layer} tempLayer - The temporary processing layer. / 処理用の一時レイヤー。
+     * @returns {Array} The sorted items in tempLayer. / ソートされたアイテムの配列。
+     */
+    moveAndSortItems: function (sourceLayer, tempLayer) {
+        try {
+            DebugLogManager.info("[MOVE] Moving and sorting items from layer:" + sourceLayer.name + " to tempLayer: " + tempLayer.name);
+
+            var items = [];
+            if (sourceLayer.pathItems.length > 0) {
+                items = items.concat(sourceLayer.pathItems);
+            }
+            if (sourceLayer.compoundPathItems.length > 0) {
+                items = items.concat(sourceLayer.compoundPathItems);
+            }
+            if (sourceLayer.groupItems.length > 0) {
+                items = items.concat(sourceLayer.groupItems);
+            }
+
+            // Move items to tempLayer
+            for (var i = 0; i < items.length; i++) {
+                var newItem = items[i].duplicate(tempLayer);
+                newItem.name = "temp_" + (i + 1);
+            }
+
+            // Sort by grid-based sorting
+            var sortedItems = SortingManager.sortPartsByGrid(tempLayer.pageItems);
+
+            DebugLogManager.info("[SORT] Items sorted. Total:", sortedItems.length);
+            return sortedItems;
+
+        } catch (error) {
+            DebugLogManager.error("[ERROR] Failed to move and sort items:", error);
+            return [];
+        }
     }
+
 };
 
-// Path Manager
+// Path Manager with extended measurement capabilities
 var PathManager = {
-    getPathArea: function(item) {
-        DebugLogManager.info("PathManager.getPathArea: item = " + item); 
+    // Conversion constants
+    POINTS_TO_MM: 0.352778,
+    POINTS_TO_CM: 0.0352778,
+    
+    /**
+     * Converts points to millimeters
+     * @param {Number} points - Value in points
+     * @returns {Number} Value in millimeters
+     */
+    pointsToMM: function(points) {
+        return points * this.POINTS_TO_MM;
+    },
+    
+    /**
+     * Converts points to centimeters
+     * @param {Number} points - Value in points
+     * @returns {Number} Value in centimeters
+     */
+    pointsToCM: function(points) {
+        return points * this.POINTS_TO_CM;
+    },
+    
+    /**
+     * Gets path width in various units
+     * @param {PathItem|CompoundPathItem} item - The item to measure
+     * @returns {Object} Width in different units
+     */
+    getPathWidth: function(item) {
         try {
-            if (!item) return 0;
+            var bounds = item.geometricBounds;
+            var widthPT = Math.abs(bounds[2] - bounds[0]);
+            
+            return {
+                pt: widthPT,
+                mm: this.pointsToMM(widthPT),
+                cm: this.pointsToCM(widthPT)
+            };
+        } catch(e) {
+            DebugLogManager.error("Error in getPathWidth:", e.toString());
+            return { pt: 0, mm: 0, cm: 0 };
+        }
+    },
+    
+    /**
+     * Gets path height in various units
+     * @param {PathItem|CompoundPathItem} item - The item to measure
+     * @returns {Object} Height in different units
+     */
+    getPathHeight: function(item) {
+        try {
+            var bounds = item.geometricBounds;
+            var heightPT = Math.abs(bounds[1] - bounds[3]);
+            
+            return {
+                pt: heightPT,
+                mm: this.pointsToMM(heightPT),
+                cm: this.pointsToCM(heightPT)
+            };
+        } catch(e) {
+            DebugLogManager.error("Error in getPathHeight:", e.toString());
+            return { pt: 0, mm: 0, cm: 0 };
+        }
+    },
+    
+    /**
+     * Gets path area in various units
+     * @param {PathItem|CompoundPathItem|GroupItem} item - The item to measure
+     * @returns {Object} Area in different units
+     */
+    getPathArea: function(item) {
+        try {
+            if (!item) return { pt: 0, mm: 0, cm: 0 };
+            
+            var areaPT = 0;
             
             switch (item.typename) {
                 case 'PathItem':
-                    return Math.abs(item.area);
+                    areaPT = Math.abs(item.area);
+                    break;
                 case 'CompoundPathItem':
-                    return this.getCompoundPathArea(item);
+                    areaPT = this.getCompoundPathArea(item);
+                    break;
                 case 'GroupItem':
-                    return this.getGroupArea(item);
+                    areaPT = this.getGroupArea(item);
+                    break;
                 default:
-                    return this.getBoundingBoxArea(item);
+                    areaPT = this.getBoundingBoxArea(item);
             }
+            
+            return {
+                pt: areaPT,
+                mm: this.pointsToMM(areaPT),
+                cm: this.pointsToCM(areaPT)
+            };
         } catch(e) {
-            DebugLogManager.error("Error calculating path area:", e.toString());
+            DebugLogManager.error("Error in getPathArea:", e.toString());
+            return { pt: 0, mm: 0, cm: 0 };
+        }
+    },
+    
+    /**
+     * Gets compound path area in various units
+     * @param {CompoundPathItem} item - The compound path to measure
+     * @returns {Number} Area in points
+     */
+    getCompoundPathArea: function(item) {
+        try {
+            var total = 0;
+            for (var i = 0; i < item.pathItems.length; i++) {
+                total += Math.abs(item.pathItems[i].area);
+            }
+            return total;
+        } catch(e) {
+            DebugLogManager.error("Error in getCompoundPathArea:", e.toString());
             return 0;
         }
     },
     
-    getCompoundPathArea: function(item) {
-        DebugLogManager.info("PathManager.getCompoundPathArea: item = " + item);
-        var total = 0;
-        for (var i = 0; i < item.pathItems.length; i++) {
-            total += Math.abs(item.pathItems[i].area);
-        }
-        return total;
-    },
-    
+    /**
+     * Gets group area in points
+     * @param {GroupItem} item - The group to measure
+     * @returns {Number} Area in points
+     */
     getGroupArea: function(item) {
-        DebugLogManager.info("PathManager.getGroupArea: item = " + item);
-        var total = 0;
-        for (var i = 0; i < item.pageItems.length; i++) {
-            total += this.getPathArea(item.pageItems[i]);
+        try {
+            var total = 0;
+            for (var i = 0; i < item.pageItems.length; i++) {
+                total += this.getPathArea(item.pageItems[i]).pt;
+            }
+            return total;
+        } catch(e) {
+            DebugLogManager.error("Error in getGroupArea:", e.toString());
+            return 0;
         }
-        return total;
     },
     
+    /**
+     * Gets bounding box area in points
+     * @param {PageItem} item - The item to measure
+     * @returns {Number} Area in points
+     */
     getBoundingBoxArea: function(item) {
-        DebugLogManager.info("PathManager.getBoundingBoxArea: item = " + item);
-        var bounds = item.geometricBounds;
-        return Math.abs((bounds[2] - bounds[0]) * (bounds[1] - bounds[3]));
+        try {
+            var bounds = item.geometricBounds;
+            return Math.abs((bounds[2] - bounds[0]) * (bounds[1] - bounds[3]));
+        } catch(e) {
+            DebugLogManager.error("Error in getBoundingBoxArea:", e.toString());
+            return 0;
+        }
+    },
+     getPathVertices: function(pathItem) {
+        var vertices = [];
+
+        if (pathItem.typename === "PathItem") {
+            for (var i = 0; i < pathItem.pathPoints.length; i++) {
+                vertices.push([pathItem.pathPoints[i].anchor[0], pathItem.pathPoints[i].anchor[1]]);
+            }
+        } else if (pathItem.typename === "CompoundPathItem") {
+            for (var i = 0; i < pathItem.pathItems.length; i++) {
+                var subPath = pathItem.pathItems[i];
+                for (var j = 0; j < subPath.pathPoints.length; j++) {
+                    vertices.push([subPath.pathPoints[j].anchor[0], subPath.pathPoints[j].anchor[1]]);
+                }
+            }
+        }
+
+        return vertices;
+    },
+     
+    getShapeMeasurements: function(parts, results) {
+        try {
+            var shapeMeasurements = [];
+            for (var i = 0; i < parts.length; i++) {
+                var part = parts[i];
+
+                var width = this.getPathWidth(part);
+                var height = this.getPathHeight(part);
+                var area = this.getPathArea(part);
+
+                // ✅ Fetch LED count directly using `results[part.name]`
+                var ledCount = results[part.name] ? results[part.name].ledCount : 0;
+
+                shapeMeasurements.push({
+                    name: part.name,
+                    width: width.mm.toFixed(2), 
+                    height: height.mm.toFixed(2),
+                    area: area.mm.toFixed(2),
+                    ledCount: ledCount // ✅ Now fetched from `results` using `part.name`
+                });
+            }
+            return shapeMeasurements;
+        } catch (e) {
+            DebugLogManager.error("Error in getShapeMeasurements:", e.toString());
+            return [];
+        }
+    },
+
+    getAssociatedLEDCount: function(part) {
+        var count = 0;
+        try {
+            var partBounds = this.getBoundingBox(part);
+
+            for (var i = 0; i < LogManager._data.leds.length; i++) {
+                var led = LogManager._data.leds[i];
+                var ledBounds = this.getBoundingBox(led);
+
+                if (OverlapDetectionManager.isBoundingBoxOverlapping(partBounds, ledBounds)) {
+                    count++;
+                }
+            }
+        } catch (e) {
+            DebugLogManager.error("Error in getAssociatedLEDCount:", e.toString());
+        }
+        return count;
+    }
+
+     
+};
+
+/**
+ * LEDManager: Handles LED data extraction including bounding box and vertices.
+ * LEDデータ抽出 (境界ボックス & 頂点情報) を処理するマネージャー。
+ */
+var LEDManager = {
+
+    /**
+     * Extracts the bounding box of an LED GroupItem.
+     * LED GroupItem の境界ボックスを抽出します。
+     *
+     * @param {GroupItem} led - The LED GroupItem.
+     * @returns {Array} Bounding box [left, top, right, bottom].
+     */
+    getLEDBoundingBox: function (led) {
+        try {
+            if (!led || led.typename !== "GroupItem") {
+                DebugLogManager.error("[LEDManager] Invalid LED GroupItem provided.");
+                return null;
+            }
+
+            var bounds = led.visibleBounds; // [left, top, right, bottom]
+            //DebugLogManager.info("[LEDManager] Bounding box extracted for LED:", bounds);
+            return bounds;
+
+        } catch (error) {
+            DebugLogManager.error("[LEDManager] Error extracting LED bounding box:", error);
+            return null;
+        }
+    },
+
+    /**
+     * Extracts all path vertices from a GroupItem (LED).
+     * This ensures it works even if the LED contains nested GroupItems.
+     * LED GroupItem からすべてのパスの頂点を抽出。
+     * ネストされた GroupItem に対しても適切に処理します。
+     *
+     * @param {GroupItem} led - The LED GroupItem.
+     * @returns {Array} Array of vertices in [x, y] format.
+     */
+    getLEDVertices: function (led) {
+        var vertices = [];
+
+        try {
+            if (!led || led.typename !== "GroupItem") {
+                DebugLogManager.error("[LEDManager] Invalid LED GroupItem provided.");
+                return [];
+            }
+
+            //DebugLogManager.info("[LEDManager] Extracting LED vertices...");
+
+            function extractVertices(item) {
+                if (item.typename === "PathItem") {
+                    for (var j = 0; j < item.pathPoints.length; j++) {
+                        var point = item.pathPoints[j].anchor;
+                        vertices.push([point[0], point[1]]);
+                    }
+                } else if (item.typename === "GroupItem") {
+                    for (var k = 0; k < item.pageItems.length; k++) {
+                        extractVertices(item.pageItems[k]); // Recursively check nested items
+                    }
+                }
+            }
+
+            extractVertices(led);
+            //DebugLogManager.info("[LEDManager] Extracted", vertices.length, "vertices from LED.");
+
+        } catch (error) {
+            DebugLogManager.error("[LEDManager] Error extracting LED vertices:", error);
+        }
+
+        return vertices;
     }
 };
 
-// Log Manager
+
+// Complete Log Manager Implementation
 var LogManager = {
+    _mngName: "[LOGMANAGER]",
     _data: {},
     _layerData: [],
     
-    init: function() {
-        DebugLogManager.info("LogManager.init:... ");
-        this._data = {};
-        this._layerData = [];
-    },
-    
-    logDocumentInfo: function(doc) {
-        DebugLogManager.info("LogManager.logDocumentInfo: doc = " + doc);
-        this._data[LOG_KEYS.DOC_PATH] = doc.path;
-        this._data[LOG_KEYS.DOC_NAME] = doc.name.replace(/\.ai$/i, '');
-        this._data[LOG_KEYS.LAYER_COUNT] = doc.layers.length;
-    },
-    
-    logLayerInfo: function(layer) {
-        DebugLogManager.info("LogManager.logLayerInfo: layer = " + layer);
-        var layerInfo = {};
-        layerInfo[LOG_KEYS.LAYER_NAME] = layer.name;
-        
-        var chars = [];
-        for (var i = 0; i < layer.name.length; i++) {
-            chars.push(layer.name.charCodeAt(i));
-        }
-        layerInfo[LOG_KEYS.LAYER_CHARS] = chars.join(',');
-        
-        this._layerData.push(layerInfo);
-    },
-    
-    logTargetLayerInfo: function(layer) {
-        DebugLogManager.info("LogManager.logTargetLayerInfo: layer = " + layer);
-        this._data[LOG_KEYS.TARGET_FOUND] = layer.name;
-        
-        // Area calculations
-        var area = LayerManager.getLayerArea(layer);
-        var areaMM = (area / 2.834645 / 2.834645).toFixed(2);
-        var areaCM = (areaMM / 100).toFixed(2);
-        
-        this._data[LOG_KEYS.AREA_POINTS] = area.toFixed(10);
-        this._data[LOG_KEYS.AREA_MM] = areaMM;
-        this._data[LOG_KEYS.AREA_CM] = areaCM;
-        
-        // Height calculations
-        var height = LayerManager.getMaxHeight(layer);
-        var heightMM = (height / 2.834645).toFixed(2);
-        
-        this._data[LOG_KEYS.HEIGHT_POINTS] = height;
-        this._data[LOG_KEYS.HEIGHT_MM] = heightMM;
-        
-        // LED count if available
-        var ledCount = LayerManager.countLEDGroups(layer);
-        if (ledCount > 0) {
-            this._data[LOG_KEYS.LED_COUNT] = ledCount;
-        }
-    },
-    
-    setExportPath: function(path) {
-        DebugLogManager.info("LogManager.setExportPath: path = " + path);
-        this._data[LOG_KEYS.EXPORT_PATH] = path;
-    },
-    
-    generateOutput: function() {
-        DebugLogManager.info("LogManager.generateOutput:... ");
-        var output = '';
-        
-        // Document level information
-        output += LOG_KEYS.DOC_PATH + ': ' + this._data[LOG_KEYS.DOC_PATH] + '\n';
-        output += LOG_KEYS.DOC_NAME + ': ' + this._data[LOG_KEYS.DOC_NAME] + '\n';
-        output += LOG_KEYS.EXPORT_PATH + ': ' + this._data[LOG_KEYS.EXPORT_PATH] + '\n';
-        output += LOG_KEYS.LAYER_COUNT + ': ' + this._data[LOG_KEYS.LAYER_COUNT] + '\n';
-        
-        // Layer information - replace forEach with for loop
-        for (var i = 0; i < this._layerData.length; i++) {
-            var layerInfo = this._layerData[i];
-            output += LOG_KEYS.LAYER_NAME + ': ' + layerInfo[LOG_KEYS.LAYER_NAME] + '\n';
-            output += LOG_KEYS.LAYER_CHARS + ': ' + layerInfo[LOG_KEYS.LAYER_CHARS] + '\n';
-        }
-        
-        // Target layer information if found
-        if (this._data[LOG_KEYS.TARGET_FOUND]) {
-            output += LOG_KEYS.TARGET_FOUND + ': ' + this._data[LOG_KEYS.TARGET_FOUND] + '\\n';
-            output += LOG_KEYS.AREA_POINTS + ': ' + this._data[LOG_KEYS.AREA_POINTS] + ' square points\\n';
-            output += LOG_KEYS.AREA_MM + ': ' + this._data[LOG_KEYS.AREA_MM] + '\\n';
-            output += LOG_KEYS.AREA_CM + ': ' + this._data[LOG_KEYS.AREA_CM] + '\\n';
-            output += LOG_KEYS.HEIGHT_POINTS + ': ' + this._data[LOG_KEYS.HEIGHT_POINTS] + '\\n';
-            output += LOG_KEYS.HEIGHT_MM + ': ' + this._data[LOG_KEYS.HEIGHT_MM] + '\\n';
-            
-            if (this._data[LOG_KEYS.LED_COUNT]) {
-                output += LOG_KEYS.LED_COUNT + ': ' + this._data[LOG_KEYS.LED_COUNT] + '\\n';
-            }
-        }
-        
-        return output;
-    },
-    
-    writeToFile: function(filePath) {
-        DebugLogManager.info("LogManager.writeToFile: filePath = " + filePath);
+    /**
+     * Initializes the log manager
+     */
+    init: function () {
         try {
-            var file = new File(filePath);
-            file.encoding = 'UTF-8';
-            if (file.open('w')) {
-                file.write(this.generateOutput());
-                file.close();
+            var funName = this._mgnName + "init: ";
+            DebugLogManager(funName + "Starting...")
+            try {
+                DebugLogManager.info(funName + "Initializing...");
+                this._data = {};
+                this._layerData = [];
                 return true;
+            } catch (e) {
+                DebugLogManager.error(funName + " initializing LogManager._data" + this._data + " or " + "LogManager._layerData " + this._layerData + e.toString());
+                return false;
             }
-            return false;
-        } catch(e) {
-            $.writeln('Error writing log file: ' + e);
+
+            try {
+                DebugLogManager.info(funName + " invoking logging functions...");
+                this.logDocumentInfo(DocumentManager._doc);
+                return true;
+            } catch (e) {
+                DebugLogManager.error(funName + " initializing LogManager._data" + this._data + " or " + "LogManager._layerData " + this._layerData + e.toString());
+                return false;
+            }
+        } catch (e) {
+            DebugLogManager.error(funName + " encountered exception: " + e.toString());
             return false;
         }
-    }
-};
+    },
+    
+        /**
+         * Logs basic document information
+         * @param {Document} doc - The active document
+         */
+        logDocumentInfo: function(doc) {
+            try {
+                DebugLogManager.info("Logging document info");
+                if (!doc) {
+                    DebugLogManager.error("Invalid document provided");
+                    return false;
+                }
 
-// Export Manager
-var ExportManager = {
-    exportLayerToPNG: function(layer, exportPath) {
-        DebugLogManager.info("ExportManager.exportLayerToPNG: layer = " + layer + ". exportPath" + exportPath);
-        if (!layer || !exportPath) return false;
+                this._data[LOG_KEYS.DOC_PATH] = doc.path || "";
+                this._data[LOG_KEYS.DOC_NAME] = doc.name;
+                this._data[LOG_KEYS.LAYER_COUNT] = doc.layers ? doc.layers.length : 0;
+            
+                return true;
+            } catch (e) {
+                DebugLogManager.error("Error in logDocumentInfo:", e.toString());
+                return false;
+            }
+        },
+    
+        /**
+         * Logs information about a specific layer
+         * @param {Layer} layer - The layer to log
+         */
+        logLayerInfo: function(layer) {
+            try {
+                DebugLogManager.info("Logging layer info for:", layer.name);
+                var layerInfo = {};
+                layerInfo[LOG_KEYS.LAYER_NAME] = layer.name;
+                layerInfo[LOG_KEYS.LAYER_CHARS] = LayerManager.stringToCharCodes(layer.name);
+                this._layerData.push(layerInfo);
+                return true;
+            } catch (e) {
+                DebugLogManager.error("Error in logLayerInfo:", e.toString());
+                return false;
+            }
+        },
+    
+        /**
+         * Logs detailed information about the target layer
+         * @param {Layer} layer - The target layer
+         */
+        logTargetLayerInfo: function(layer) {
+            try {
+                DebugLogManager.info("Logging target layer info for:", layer.name);
+                this._data[LOG_KEYS.TARGET_FOUND] = layer.name;
+            
+                // Area calculations
+                var area = LayerManager.getLayerArea(layer);
+                var areaMM = (area / 2.834645 / 2.834645).toFixed(2);
+                var areaCM = (areaMM / 100).toFixed(2);
+            
+                this._data[LOG_KEYS.AREA_POINTS] = area.toFixed(10);
+                this._data[LOG_KEYS.AREA_MM] = areaMM;
+                this._data[LOG_KEYS.AREA_CM] = areaCM;
+            
+                // Height calculations
+                var height = LayerManager.getMaxHeight(layer);
+                var heightMM = (height / 2.834645).toFixed(2);
+                var heightCM = heightMM / 100;
+                this._data[LOG_KEYS.HEIGHT_POINTS] = height;
+                this._data[LOG_KEYS.HEIGHT_MM] = heightMM;
+                this._data[LOG_KEYS.HEIGHT_CM] = heightCM;
+            
+                // LED count if available
+                if (layer.name === "LED") {
+                    var ledCount = LayerManager.countLEDGroups(layer);
+                    if (ledCount > 0) {
+                        this._data[LOG_KEYS.LED_COUNT] = ledCount;
+                    }
+                }
+            
+                return true;
+            } catch (error) {
+                DebugLogManager.error("Error in logTargetLayerInfo:", error.toString());
+                return false;
+            }
+        },
+    
+        /**
+         * Sets the export path for the current process
+         * @param {String} path - The export path
+         */
+        setExportPath: function(path) {
+            try {
+                DebugLogManager.info("Setting export path:", path);
+                var doc = app.activeDocument;
+                var docPath = doc.path;
+                var docName = doc.name;
+                var expPath = new Folder(docPath + "/" + docName.replace(/\.ai$/i, ''));
+                if (!expPath.exists) {
+                    expPath.create();
+                    DebugLogManager.info("[EXPORT] Created export folder: " + expPath.fsName);
+                }
+                this._data[LOG_KEYS.EXPORT_PATH] = path || expPath.fsName;
+                return expPath.fsName;
+            } catch (e) {
+                DebugLogManager.error("Error in setExportPath:", e.toString());
+                return false;
+            }
+        },
+    
+        /**
+         * Logs measurements for an array of shapes
+         * @param {Array} shapes - Array of shapes to measure
+         */
+        logShapeMeasurements: function() {
+            try {
+                DebugLogManager.info("Starting shape measurements logging");
+            
+                var shapes = this._data.shapes;
+            
+                var shapesAndLeds = this._data.results;
+            
+                for (var i = 0; i < shapes.length; i++) {
+                    var shape = shapes[i];
+                    var num = i + 1;
+                    // three digit index
+                    var index = num < 10 ? "00" + num : (num < 100 ? "0" + num : num.toString());
+                
+
+                    // Get measurements
+                    var width = PathManager.getPathWidth(shape);
+                    var height = PathManager.getPathHeight(shape);
+                    var area = PathManager.getPathArea(shape);
+                
+                    // Get LED count for this shape
+                    var overlappingLEDs = OverlapDetectionManager.detectOverlap(shapes, leds);
+                    var ledCount = overlappingLEDs ? overlappingLEDs.length : 0;
+                
+                    // Log shape information
+                    this._data[LOG_KEYS.SHAPE_NAME_ROOT + index] = shape.name || ("Shape_" + index);
+                
+                    // Log heights
+                    this._data[LOG_KEYS.SHAPE_HEIGHT_PT + index] = height.pt.toFixed(2);
+                    this._data[LOG_KEYS.SHAPE_HEIGHT_MM + index] = height.mm.toFixed(2);
+                    this._data[LOG_KEYS.SHAPE_HEIGHT_CM + index] = height.cm.toFixed(2);
+                
+                    // Log widths
+                    this._data[LOG_KEYS.SHAPE_WIDTH_PT + index] = width.pt.toFixed(2);
+                    this._data[LOG_KEYS.SHAPE_WIDTH_MM + index] = width.mm.toFixed(2);
+                    this._data[LOG_KEYS.SHAPE_WIDTH_CM + index] = width.cm.toFixed(2);
+                
+                    // Log areas
+                    this._data[LOG_KEYS.SHAPE_AREA_PTSQ + index] = area.pt.toFixed(2);
+                    this._data[LOG_KEYS.SHAPE_AREA_MMSQ + index] = area.mm.toFixed(2);
+                    this._data[LOG_KEYS.SHAPE_AREA_CMSQ + index] = area.cm.toFixed(2);
+                
+                    // Log LED count
+                    this._data[LOG_KEYS.SHAPE_LED_COUNT + index] = ledCount;
+                
+                    DebugLogManager.info("Logged measurements for shape:", index, "LED count:", ledCount);
+                }
+            
+                DebugLogManager.info("Completed shape measurements logging");
         
-        var doc = app.activeDocument;
-        var originalState = this.saveDocumentState(doc);
+            } catch (e) {
+                DebugLogManager.error("Error in logShapeMeasurements:", e.toString());
+            }
+        },
+
+        /**
+         * Retrieves all items from a specified layer whose names start with the given partial name (root name).
+         * 指定されたレイヤー内で、指定した部分名（ルート名）で始まるすべてのアイテムを取得する。
+         *
+         * @param {Layer} layer - The Illustrator layer to search in.
+         *                        検索するIllustratorレイヤー。
+         * @param {string} partialName - The root name to match at the beginning of item names.
+         *                               アイテム名の先頭に一致するルート名。
+         * @returns {Array} Array of matching items.
+         *                  一致するアイテムの配列。
+         */
+        getItemsByPartialName: function (layer, partialName) {
+            try {
+                if (!layer || !partialName) {
+                    DebugLogManager.error("[GET ITEMS] Invalid layer or partial name provided.");
+                    return [];
+                }
+
+                var matchingItems = [];
+                var totalItems = layer.pageItems.length;
+
+                DebugLogManager.info("[GET ITEMS] Searching for items in layer:", layer.name, "with partial name:", partialName);
+            
+                for (var i = 0; i < totalItems; i++) {
+                    var item = layer.pageItems[i];
+
+                    if (item.name.indexOf(partialName) === 0) { // ✅ Check if the name starts with partialName
+                        matchingItems.push(item);
+                    }
+                }
+
+                DebugLogManager.info("[GET ITEMS] Found", matchingItems.length, "items matching:", partialName);
+                return matchingItems;
+
+            } catch (e) {
+                DebugLogManager.error("[GET ITEMS] Error retrieving items:", e.toString());
+                return [];
+            }
+        },
+    
+        reverseArray: function (arr) {
+            var reversed = [];
+            for (var i = arr.length - 1; i >= 0; i--) {
+                reversed.push(arr[i]);
+            }
+            return reversed;
+        },
+
+        /**
+         * Generates the output string from all logged data
+         * @returns {String} The formatted output string
+         */
+        generateOutput: function() {
+            try {
+                DebugLogManager.info("Generating output");
+                var output = '';
+            
+                // Document level information
+                output += LOG_KEYS.DOC_PATH + ': ' + this._data[LOG_KEYS.DOC_PATH] + '\n';
+                output += LOG_KEYS.DOC_NAME + ': ' + this._data[LOG_KEYS.DOC_NAME] + '\n';
+                output += LOG_KEYS.EXPORT_PATH + ': ' + this._data[LOG_KEYS.EXPORT_PATH] + '\n';
+                output += LOG_KEYS.LAYER_COUNT + ': ' + this._data[LOG_KEYS.LAYER_COUNT] + '\n';
+            
+                // Layer information
+                for (var i = 0; i < this._layerData.length; i++) {
+                    var layerInfo = this._layerData[i];
+                    output += LOG_KEYS.LAYER_NAME + ': ' + layerInfo[LOG_KEYS.LAYER_NAME] + '\n';
+                    output += LOG_KEYS.LAYER_CHARS + ': ' + layerInfo[LOG_KEYS.LAYER_CHARS] + '\n';
+                }
+            
+                // Target layer information if found
+                //            if (this._data[LOG_KEYS.TARGET_FOUND]) {
+                output += LOG_KEYS.TARGET_FOUND + ': ' + this._data[LOG_KEYS.TARGET_FOUND] + '\n';
+                output += LOG_KEYS.AREA_POINTS + ': ' + this._data[LOG_KEYS.AREA_POINTS] + ' square points\n';
+                output += LOG_KEYS.AREA_MM + ': ' + this._data[LOG_KEYS.AREA_MM] + '\n';
+                output += LOG_KEYS.AREA_CM + ': ' + this._data[LOG_KEYS.AREA_CM] + '\n';
+                output += LOG_KEYS.HEIGHT_POINTS + ': ' + this._data[LOG_KEYS.HEIGHT_POINTS] + '\n';
+                output += LOG_KEYS.HEIGHT_MM + ': ' + this._data[LOG_KEYS.HEIGHT_MM] + '\n';
+                //            }
+
+                // ✅ Compute total LED count inside `generateOutput()`
+                try {
+                    var totalLEDCount = 0;
+                    var tempLayer = LayerManager.findLayerByName(app.activeDocument, "Temp_Union_Layer");
+                    totalLEDCount = tempLayer.groupItems.length;
+                    output += LOG_KEYS.LED_COUNT + ': ' + totalLEDCount + '\n';
+                } catch (error) {
+                    var errMes = "Could not calculate the totalLEDCount with LOG_KEYS.LED_COUNT: " + " and totalLEDCount: " + totalLEDCount;
+                    DebugLogManager.error(errMes);
+                    this.writeToFile(null, errMes);
+                }
+
+
+                // ✅ Ensure shape measurements are logged
+                DebugLogManager.info("Checking stored shape measurements in LogManager:", this._data.shapes);
+            
+                //var shapes = this.reverseArray(this.getItemsByPartialName(tempLayer, "Part_"));
+                var shapes = this._data.shapes;
+            
+                if (!shapes || shapes.length === 0) {
+                    output += "\n🚨 No shape measurements found. 🚨\n";
+                } else {
+                    output += "\n=== SHAPE MEASUREMENTS ===\n";
+
+                    for (var i = 0; i < shapes.length; i++) {
+                        var shape = shapes[i];
+
+                        // Height measurements
+                        output += LOG_KEYS.SHAPE_HEIGHT_MM + (i + 1) + ': ' +
+                            shape.height + '\n';
+                        /*
+                        output += LOG_KEYS.SHAPE_HEIGHT_PT + (i + 1) + ': ' + 
+                                this._data[LOG_KEYS.SHAPE_HEIGHT_PT + (i + 1)] + '\n';
+                        output += LOG_KEYS.SHAPE_HEIGHT_CM + (i + 1) + ': ' + 
+                                this._data[LOG_KEYS.SHAPE_HEIGHT_CM + (i + 1)] + '\n';
+                                */
+                    
+                        // Width measurements
+                        output += LOG_KEYS.SHAPE_WIDTH_MM + (i + 1) + ': ' +
+                            shape.width + '\n';
+                        /*
+                        output += LOG_KEYS.SHAPE_WIDTH_PT + (i + 1) + ': ' + 
+                                this._data[LOG_KEYS.SHAPE_WIDTH_PT + (i + 1)] + '\n';
+                        output += LOG_KEYS.SHAPE_WIDTH_CM + (i + 1) + ': ' + 
+                                this._data[LOG_KEYS.SHAPE_WIDTH_CM + (i + 1)] + '\n';
+                        */
+                        // Area measurements
+                        //output += LOG_KEYS.SHAPE_AREA_PTSQ + (i + 1) + ': ' + 
+                        //    shape.getPathArea + '\n';
+                        /*
+                        output += LOG_KEYS.SHAPE_AREA_MMSQ + (i + 1) + ': ' + 
+                                this._data[LOG_KEYS.SHAPE_AREA_MMSQ + (i + 1)] + '\n';
+                        output += LOG_KEYS.SHAPE_AREA_CMSQ + (i + 1) + ': ' + 
+                            this._data[LOG_KEYS.SHAPE_AREA_CMSQ + (i + 1)] + '\n';
+                        */
+                        // In the shape measurements loop in generateOutput:
+                        //output += LOG_KEYS.SHAPE_LED_COUNT + (i + 1) + ': ' + 
+                        //    this._data[LOG_KEYS.SHAPE_LED_COUNT + (i + 1)] + '\n';
+
+                        output += LOG_KEYS.SHAPE_LED_COUNT + (i + 1) + ': ' + this._data.shapes[i].ledCount + '\n\n';
+                    }
+                }
+
+                /*
+                    // Shape measurements
+                    for (var shapeIndex = 1; shapeIndex <= 1000; shapeIndex++) {
+                        var shapeKey = LOG_KEYS.SHAPE_NAME_ROOT + shapeIndex;
+                        DebugLogManager.info("Checking for shape key:", shapeKey);
+                        DebugLogManager.info("hasOwnProperty result:", this._data.hasOwnProperty(shapeKey));
+    
+                        // Check if this shape exists in the data
+                        if (!this._data.hasOwnProperty(shapeKey)) {
+                            break; // No more shapes to process
+                        }
+                        
+                        output += '\n=== Shape ' + shapeIndex + ' ===\n';
+                        output += LOG_KEYS.SHAPE_NAME_ROOT + shapeIndex + ': ' + 
+                                this._data[LOG_KEYS.SHAPE_NAME_ROOT + shapeIndex] + '\n';
+                        
+                        // Height measurements
+                        output += LOG_KEYS.SHAPE_HEIGHT_PT + shapeIndex + ': ' + 
+                                this._data[LOG_KEYS.SHAPE_HEIGHT_PT + shapeIndex] + '\n';
+                        output += LOG_KEYS.SHAPE_HEIGHT_MM + shapeIndex + ': ' + 
+                                this._data[LOG_KEYS.SHAPE_HEIGHT_MM + shapeIndex] + '\n';
+                        output += LOG_KEYS.SHAPE_HEIGHT_CM + shapeIndex + ': ' + 
+                                this._data[LOG_KEYS.SHAPE_HEIGHT_CM + shapeIndex] + '\n';
+                        
+                        // Width measurements
+                        output += LOG_KEYS.SHAPE_WIDTH_PT + shapeIndex + ': ' + 
+                                this._data[LOG_KEYS.SHAPE_WIDTH_PT + shapeIndex] + '\n';
+                        output += LOG_KEYS.SHAPE_WIDTH_MM + shapeIndex + ': ' + 
+                                this._data[LOG_KEYS.SHAPE_WIDTH_MM + shapeIndex] + '\n';
+                        output += LOG_KEYS.SHAPE_WIDTH_CM + shapeIndex + ': ' + 
+                                this._data[LOG_KEYS.SHAPE_WIDTH_CM + shapeIndex] + '\n';
+                        
+                        // Area measurements
+                        output += LOG_KEYS.SHAPE_AREA_PTSQ + shapeIndex + ': ' + 
+                                this._data[LOG_KEYS.SHAPE_AREA_PTSQ + shapeIndex] + '\n';
+                        output += LOG_KEYS.SHAPE_AREA_MMSQ + shapeIndex + ': ' + 
+                                this._data[LOG_KEYS.SHAPE_AREA_MMSQ + shapeIndex] + '\n';
+                        output += LOG_KEYS.SHAPE_AREA_CMSQ + shapeIndex + ': ' + 
+                            this._data[LOG_KEYS.SHAPE_AREA_CMSQ + shapeIndex] + '\n';
+                        
+                        // In the shape measurements loop in generateOutput:
+                        output += LOG_KEYS.SHAPE_LED_COUNT + shapeIndex + ': ' + 
+                            this._data[LOG_KEYS.SHAPE_LED_COUNT + shapeIndex] + '\n';
+                        }
+                    }
+                */
+                DebugLogManager.info("Output generated successfully");
+                return output;
+            } catch (e) {
+                DebugLogManager.error("Error in generateOutput:", e.toString());
+                return '';
+            }
+        },
         
+        /**
+         * Writes log data to a file, automatically handling success and error logs.
+         * 成功ログとエラーログを自動処理してログデータをファイルに書き込む。
+         *
+         * If `filePath` is provided, the log is written to that specific location.
+         * Otherwise, it defaults to writing the output log to `<document_path>/<document_name>_output_log.txt`.
+         * If an error occurs during writing, an error log is saved to `<document_path>/<document_name>_error_log.txt`.
+         * 
+         * `filePath` が指定された場合、そのパスにログを書き込む。
+         * それ以外の場合、デフォルトで `<document_path>/<document_name>_output_log.txt` にログを書き込む。
+         * 書き込み中にエラーが発生した場合は、 `<document_path>/<document_name>_error_log.txt` にエラーログを保存する。
+         *
+         * @param {string} [filePath] - (Optional) The file path to write the log. If omitted, the default path is used.
+         *                              (省略可能) ログを書き込むファイルパス。省略した場合はデフォルトのパスが使用される。
+         * @param {string} [errorMessage] - (Optional) Error message to include in the log if writing fails.
+         *                                  (省略可能) 書き込みに失敗した場合にログに含めるエラーメッセージ。
+         * @returns {boolean} `true` if writing was successful, `false` if an error occurred.
+         *                    書き込みが成功した場合は `true`、エラーが発生した場合は `false`。
+         */
+        writeToFile: function (filePath, errorMessage) {
+            try {
+                var doc = app.activeDocument;
+                if (!doc) {
+                    DebugLogManager.error("No active document found.");
+                    return false;
+                }
+
+                // Extract document path and name (excluding .ai extension)
+                var docPath = doc.path;
+                var docName = doc.name.replace(/\.ai$/i, '');
+
+                // Define default log paths
+                var defaultSuccessLogPath = docPath + "/" + docName + "_output_log.txt";
+                var defaultErrorLogPath = docPath + "/" + docName + "_error_log.txt";
+
+                // Use provided filePath if available, otherwise use the default success log path
+                var logFilePath = filePath || defaultSuccessLogPath;
+
+                DebugLogManager.info("Writing log to:", logFilePath);
+
+                // Open log file and write output
+                var file = new File(logFilePath);
+                file.encoding = "UTF-8";
+                file.open("a");
+            
+                var output = this.generateOutput();
+
+                // Append error message if provided
+                if (errorMessage) {
+                    output += "\n\n=== ERROR DETAILS ===\n" + errorMessage + "\n";
+                }
+
+                file.write(output);
+                file.close();
+
+                DebugLogManager.info("Log successfully written to:", logFilePath);
+                return true;
+            } catch (e) {
+                DebugLogManager.error("Error writing log:", e.toString());
+
+                // Attempt to write an error log instead
+                try {
+                    DebugLogManager.info("Attempting to write error log to:", defaultErrorLogPath);
+                    var errorFile = new File(defaultErrorLogPath);
+                    errorFile.encoding = "UTF-8";
+                    errorFile.open("w");
+
+                    var errorContent = "Error encountered while writing log:\n" + e.toString();
+                    if (errorMessage) {
+                        errorContent += "\n\nOriginal Error:\n" + errorMessage;
+                    }
+
+                    errorFile.write(errorContent);
+                    errorFile.close();
+
+                    DebugLogManager.info("Error log successfully written to:", defaultErrorLogPath);
+                } catch (errorFileException) {
+                    DebugLogManager.error("Failed to write error log:", errorFileException.toString());
+                }
+
+                return false;
+            }
+        }
+
+    };
+
+    // Export Manager
+    var ExportManager = {
+        exportLayerToPNG: function (layer, exportPath) {
+            DebugLogManager.info("ExportManager.exportLayerToPNG: layer = " + layer + ". exportPath" + exportPath);
+            if (!layer || !exportPath) return false;
+        
+            var doc = app.activeDocument;
+            var originalState = this.saveDocumentState(doc);
+        
+            try {
+                this.prepareLayerForExport(doc, layer);
+                this.executeExport(doc, layer, exportPath);
+                return true;
+            } catch (e) {
+                DebugLogManager.error("Error exporting PNG:", e.toString());
+                return false;
+            } finally {
+                this.restoreDocumentState(doc, originalState);
+            }
+        },
+    
+        saveDocumentState: function (doc) {
+            DebugLogManager.info("ExportManager.saveDocumentState: doc = " + doc);
+            var layerVisibility = [];
+            for (var i = 0; i < doc.layers.length; i++) {
+                layerVisibility.push(doc.layers[i].visible);
+            }
+            return {
+                activeArtboard: doc.artboards[doc.artboards.getActiveArtboardIndex()],
+                artboardRect: doc.artboards[doc.artboards.getActiveArtboardIndex()].artboardRect,
+                layerVisibility: layerVisibility
+            };
+        },
+    
+        prepareLayerForExport: function (doc, targetLayer) {
+            DebugLogManager.info("ExportManager.prepareLayerForExport: doc = " + doc + ". targetLayer = " + targetLayer);
+            // Hide all layers except target
+
+            for (var i = 0; i < doc.layers.length; i++) {
+                doc.layers[i].visible = false;
+            }
+            targetLayer.visible = true;
+        
+            // Set artboard to layer bounds
+            if (targetLayer.pageItems.length > 0) {
+                var bounds = this.calculateLayerBounds(targetLayer);
+                doc.artboards[doc.artboards.getActiveArtboardIndex()].artboardRect = bounds;
+            }
+        },
+    
+        calculateLayerBounds: function (layer) {
+            DebugLogManager.info("ExportManager.calculateLayerBounds: layer = " + layer);
+            // Implementation similar to existing bounds calculation
+            var bounds = layer.pageItems[0].visibleBounds;
+            // ... bounds calculation ...
+            return bounds;
+        },
+    
+        executeExport: function (doc, layer, exportPath) {
+            DebugLogManager.info("ExportManager.executeExport: doc = " + doc + " layer = " + layer + " exportPath = " + exportPath);
+            var options = new ExportOptionsPNG24();
+            options.transparency = true;
+            options.artBoardClipping = true;
+            options.antiAliasing = true;
+            options.horizontalScale = 100;
+            options.verticalScale = 100;
+        
+            var file = new File(exportPath);
+            doc.exportFile(file, ExportType.PNG24, options);
+        },
+    
+        restoreDocumentState: function (doc, state) {
+            DebugLogManager.info("ExportManager.executeExport: doc = " + doc + " state = " + state);
+            state.activeArtboard.artboardRect = state.artboardRect;
+
+            for (var i = 0; i < doc.layers.length; i++) {
+                doc.layers[i].visible = state.layerVisibility[i];
+            }
+        }
+    };
+
+    // Layer Manager methods update
+    LayerManager.getMaxHeight = function (layer) {
+        DebugLogManager.info("LayerManager.getMaxHeight: layer = " + layer);
         try {
-            this.prepareLayerForExport(doc, layer);
-            this.executeExport(doc, layer, exportPath);
-            return true;
-        } catch(e) {
-            DebugLogManager.error("Error exporting PNG:", e.toString());
-            return false;
-        } finally {
-            this.restoreDocumentState(doc, originalState);
-        }
-    },
-    
-    saveDocumentState: function(doc) {
-        DebugLogManager.info("ExportManager.saveDocumentState: doc = " + doc);
-        return {
-            activeArtboard: doc.artboards[doc.artboards.getActiveArtboardIndex()],
-            artboardRect: doc.artboards[doc.artboards.getActiveArtboardIndex()].artboardRect,
-            layerVisibility: doc.layers.map(function(layer) { return layer.visible; })
-        };
-    },
-    
-    prepareLayerForExport: function(doc, targetLayer) {
-        DebugLogManager.info("ExportManager.prepareLayerForExport: doc = " + doc + ". targetLayer = " + targetLayer);
-        // Hide all layers except target
-        doc.layers.forEach(function(layer) { layer.visible = false; });
-        targetLayer.visible = true;
+            var maxHeight = 0;
         
-        // Set artboard to layer bounds
-        if (targetLayer.pageItems.length > 0) {
-            var bounds = this.calculateLayerBounds(targetLayer);
-            doc.artboards[doc.artboards.getActiveArtboardIndex()].artboardRect = bounds;
-        }
-    },
-    
-    calculateLayerBounds: function(layer) {
-        DebugLogManager.info("ExportManager.calculateLayerBounds: layer = " + layer);
-        // Implementation similar to existing bounds calculation
-        var bounds = layer.pageItems[0].visibleBounds;
-        // ... bounds calculation ...
-        return bounds;
-    },
-    
-    executeExport: function(doc, layer, exportPath) {
-        DebugLogManager.info("ExportManager.executeExport: doc = " + doc + " layer = " + layer + " exportPath = " + exportPath);
-        var options = new ExportOptionsPNG24();
-        options.transparency = true;
-        options.artBoardClipping = true;
-        options.antiAliasing = true;
-        options.horizontalScale = 100;
-        options.verticalScale = 100;
+            if (layer.pageItems && layer.pageItems.length > 0) {
+                for (var i = 0; i < layer.pageItems.length; i++) {
+                    var bounds = layer.pageItems[i].visibleBounds;
+                    var height = Math.abs(bounds[1] - bounds[3]);
+                    maxHeight = Math.max(maxHeight, height);
+                }
+            }
         
-        var file = new File(exportPath);
-        doc.exportFile(file, ExportType.PNG24, options);
-    },
-    
-    restoreDocumentState: function(doc, state) {
-        DebugLogManager.info("ExportManager.executeExport: doc = " + doc + " state = " + state);
-        state.activeArtboard.artboardRect = state.artboardRect;
-        doc.layers.forEach(function(layer, i) {
-            layer.visible = state.layerVisibility[i];
-        });
-    }
-};
+            if (layer.layers && layer.layers.length > 0) {
+                for (var i = 0; i < layer.layers.length; i++) {
+                    var sublayerHeight = this.getMaxHeight(layer.layers[i]);
+                    maxHeight = Math.max(maxHeight, sublayerHeight);
+                }
+            }
+        
+            return maxHeight;
+        } catch (e) {
+            $.writeln('Error calculating max height: ' + e);
+            return 0;
+        }
+    };
 
-// Layer Manager methods update
-LayerManager.getMaxHeight = function(layer) {
-    DebugLogManager.info("LayerManager.getMaxHeight: layer = " + layer);
-    try {
-        var maxHeight = 0;
+    LayerManager.countLEDGroups = function (layer) {
+        DebugLogManager.info("LayerManager.countLEDGroups: layer = " + layer);
+        try {
+            var ledLayer = this.findLayerByName(app.activeDocument, 'LED');
+            if (!ledLayer) return 0;
         
-        if (layer.pageItems && layer.pageItems.length > 0) {
-            for (var i = 0; i < layer.pageItems.length; i++) {
-                var bounds = layer.pageItems[i].visibleBounds;
-                var height = Math.abs(bounds[1] - bounds[3]);
-                maxHeight = Math.max(maxHeight, height);
+            var groupCount = 0;
+            for (var i = 0; i < ledLayer.pageItems.length; i++) {
+                if (ledLayer.pageItems[i].typename === 'GroupItem') {
+                    groupCount++;
+                }
+            }
+            return groupCount;
+        } catch (e) {
+            $.writeln('Error counting LED groups: ' + e);
+            return 0;
+        }
+    };
+
+    /**
+     * ProcessingManager: Handles the full pipeline of item movement, sorting, detection, and reporting.
+     * 
+     * ProcessingManager はアイテムの移動、ソート、検出、レポート生成を管理する。
+     */
+    var ProcessingManager = {
+    
+    
+        /**
+         * Initializes the processing pipeline by setting up layers and structures.
+         * 処理パイプラインを初期化し、レイヤーや構造を設定する。
+         * 
+         * @param {Document} doc - The active Illustrator document. / 処理対象の Illustrator ドキュメント。
+         * @returns {Object|null} Initialization result containing layers and items. / 初期化結果（レイヤーとアイテム）。
+         */
+        initialize: function (doc,layerChars) {
+            try {
+                DebugLogManager.info("[INIT] Initializing processing...");
+
+                var doc = DocumentManager._doc;
+                PreferencesManager.init();
+                DocumentManager.handleLegacyText();
+                LogManager.init();
+                LayerManager.init();
+        
+                // ✅ Store target layer information;
+                LayerManager._targetLayer = LayerManager.findLayerByChars(doc, layerChars);
+
+                var ledLayer = LayerManager._ledLayer; 
+                var partsLayer = LayerManager._targetLayer;
+                var tempLayer = LayerManager._tempLayer;
+
+                if (!ledLayer || !partsLayer || !tempLayer) {
+                    DebugLogManager.error("[ERROR] Required layers are missing. Terminating.");
+                    return null;
+                }
+
+                var sortedLEDs = LayerManager.moveSortedLeds(ledLayer, tempLayer);
+                var sortedParts = LayerManager.moveSortedParts(partsLayer, tempLayer);
+
+                DebugLogManager.info("[INFO] Initialization complete: " + tempLayer + " " + ledLayer + " " + partsLayer);
+                return {
+                    tempLayer: tempLayer,
+                    ledLayer: ledLayer,
+                    partsLayer: partsLayer,
+                    sortedLEDs: sortedLEDs,
+                    sortedParts: sortedParts
+                };
+
+            } catch (error) {
+                DebugLogManager.error("Failed to initialize processing:", error);
+                return null;
+            }
+        },
+
+        /**
+         * Creates a temporary layer for processing.
+         * 処理用の一時レイヤーを作成する。
+         * 
+         * @param {Document} doc - The active Illustrator document. / 処理対象の Illustrator ドキュメント。
+         * @returns {Layer} The created temporary layer. / 作成された一時レイヤー。
+         */
+        initializeTempLayer: function (doc) {
+            try {
+                DebugLogManager.info("[INIT] Creating temporary processing layer...");
+                //var tempLayer = doc.layers.add();
+                //tempLayer.name = "Temp_Union_Layer";
+                //return tempLayer;
+            } catch (error) {
+                DebugLogManager.error("[ERROR] Failed to create tempLayer:", error);
+                return null;
+            }
+        },
+
+        /**
+         * Executes the full processing workflow including sorting, detection, and logging.
+         * ソート、検出、ロギングを含む全体の処理ワークフローを実行する。
+         * 
+         * @param {Object} initData - The initialization data. / 初期化データ。
+         */
+        executeProcessing: function (initData) {
+            try {
+                DebugLogManager.info("[EXECUTE] Running main processing workflow...");
+
+                if (!initData || !initData.tempLayer || !initData.partsLayer || !initData.ledLayer || !initData.sortedLEDs || !initData.sortedParts) {
+                    DebugLogManager.error("Invalid initialization data.");
+                    return {};
+                }
+
+                var tempLayer = initData.tempLayer;
+                var sortedParts = initData.sortedParts;
+                var sortedLEDs = initData.sortedLEDs;
+
+                var results = {};
+
+                // Process each part against LEDs
+                for (var i = 0; i < sortedParts.length; i++) {
+                    var part = sortedParts[i];
+                    DebugLogManager.info("[PROCESS] Checking overlaps for:", part.name);
+
+                    var confirmedLEDs = OverlapDetectionManager.detectOverlap([part], sortedLEDs);
+
+                    var ledList = confirmedLEDs[part.name] || [];
+
+                    DebugLogManager.info("[RESULT] Confirmed LEDs for:", part.name, "=>", ledList);
+   
+                    results[part.name] = { // ✅ Store by part name
+                        ledCount: ledList.length,
+                        leds: ledList
+                    };
+                }
+                return results;
+            } catch (error) {
+                DebugLogManager.error("[ERROR] Execution failed:", error);
+                return {};
+            }
+
+            
+        },
+
+        /**
+         * Finalizes processing by removing the temp layer safely.
+         * 一時レイヤーを削除して処理を完了する。
+         * 
+         * @param {Layer} tempLayer - The temporary processing layer. / 処理用の一時レイヤー。
+         */
+        finalizeProcessing: function (tempLayer) {
+            try {
+                DebugLogManager.info("[FINALIZE] Cleaning up temporary processing layer...");
+
+                if (!tempLayer) {
+                    DebugLogManager.warn("[WARNING] Temp layer does not exist or has already been removed.");
+                    return;
+                }
+
+                try {
+                    var itemCount = tempLayer.pageItems.length;
+                    DebugLogManager.info("[INFO] Total items in tempLayer before deletion: " + itemCount);
+
+                    // Delete from last to first to avoid referencing deleted items
+                    for (var i = itemCount - 1; i >= 0; i--) {
+                        try {
+                            tempLayer.pageItems[i].remove();
+                        } catch (removeError) {
+                            DebugLogManager.error("[ERROR] Failed to remove pageItem at index " + i + ": " + removeError);
+                        }
+                    }
+
+                    // Ensure layer still exists before removing
+                    if (tempLayer.pageItems.length === 0) {
+                        tempLayer.remove();
+                        DebugLogManager.info("[FINALIZE] Temp layer removed successfully.");
+                    } else {
+                        DebugLogManager.warn("[WARNING] Temp layer still contains items after attempted cleanup.");
+                    }
+
+                } catch (error) {
+                    DebugLogManager.error("[ERROR] Failed to remove tempLayer or its contents: " + error);
+                }
+
+            } catch (error) {
+                DebugLogManager.error("[ERROR] Finalization failed with tempLayer: " + tempLayer + " | Error: " + error);
             }
         }
-        
-        if (layer.layers && layer.layers.length > 0) {
-            for (var i = 0; i < layer.layers.length; i++) {
-                var sublayerHeight = this.getMaxHeight(layer.layers[i]);
-                maxHeight = Math.max(maxHeight, sublayerHeight);
-            }
-        }
-        
-        return maxHeight;
-    } catch(e) {
-        $.writeln('Error calculating max height: ' + e);
-        return 0;
-    }
-};
+    };
 
-LayerManager.countLEDGroups = function(layer) {
-    DebugLogManager.info("LayerManager.countLEDGroups: layer = " + layer);
-    try {
-        var ledLayer = this.findLayerByName(app.activeDocument, 'LED');
-        if (!ledLayer) return 0;
-        
-        var groupCount = 0;
-        for (var i = 0; i < ledLayer.pageItems.length; i++) {
-            if (ledLayer.pageItems[i].typename === 'GroupItem') {
-                groupCount++;
-            }
-        }
-        return groupCount;
-    } catch(e) {
-        $.writeln('Error counting LED groups: ' + e);
-        return 0;
+function showTargetLayerSelectionDialog() {
+    var dialog = new Window("dialog", "Select an Option");
+    var dropdown = dialog.add("dropdownlist", undefined, ["支給データ", "表面", "基板"]);
+    dropdown.selection = 0; // Set default selection to first item
+    
+    // Add OK and Cancel buttons
+    var buttonGroup = dialog.add("group");
+    buttonGroup.add("button", undefined, "OK", {name: "ok"});
+    buttonGroup.add("button", undefined, "Cancel", {name: "cancel"});
+    
+    if (dialog.show() == 1) {
+        return dropdown.selection.text;
     }
-};
-
+    return null;
+}
+/*
+// Use it like this:
+var selectedOption = showTargetLayerSelectionDialog();
+if (selectedOption) {
+    alert("You selected: " + selectedOption);
+}
+*/
 // Main Process
 function main() {
-    DebugLogManager.info("Starting main processing...");
-    LogManager.init();
     try {
-        PreferencesManager.init();
-        
-        var doc = DocumentManager.getActiveDocument();
-        if (!doc) {
-            LogManager.writeToFile(doc.path + '/error_log.txt');
-            $.writeln('No documents open');
+        var funName = "[MAIN] ";
+        DebugLogManager.info(funName + "Starting main processing...");
+        //var targetLayerName = showTargetLayerSelectionDialog();
+        var targetLayerName = "支給データ";
+        var targetChars = LayerManager.stringToCharCodes(targetLayerName);
+        var doc = DocumentManager.getActiveDocument;
+        // ✅ Initialize processing
+        var initData = ProcessingManager.initialize(doc,targetChars);
+        if (!initData) {
+            DebugLogManager.error(funName + "Initialization failed. Logging error.");
+            LogManager.writeToFile(null, funName + "Failed to initialize processing for: " + doc.name);
             return false;
         }
-        
-        DocumentManager.handleLegacyText();
-        
-        // Log document information
-        LogManager.logDocumentInfo(doc);
-        
-        // Log information for each layer
-        for (var i = 0; i < doc.layers.length; i++) {
-            LogManager.logLayerInfo(doc.layers[i]);
-        }
-        
-        var targetLayer = LayerManager.findLayerByChars(doc, CONSTANTS.DEFAULT_TARGET_CHARS);
-        if (!targetLayer) {
-            $.writeln('Target layer not found');
+
+        // ✅ Store processing results
+        LogManager._data.results = ProcessingManager.executeProcessing(initData);
+
+        // ✅ Store shape measurements
+        //LogManager._data.shapes = PathManager.getShapeMeasurements(LogManager._data.parts, LogManager._data.results);
+
+
+        // ✅ Write the log file
+        var success = LogManager.writeToFile();
+        if (!success) {
+            DebugLogManager.error(funName + "Failed to write output log.");
+            LogManager.writeToFile(null, funName + "Failed to write output log for: " + doc.name);
             return false;
         }
-        
-        var exportPath = doc.path + '/' + doc.name.replace(/\.ai$/i, '') + '_' + targetLayer.name + '.png';
-        LogManager.setExportPath(exportPath);
-        LogManager.logTargetLayerInfo(targetLayer);
-        
-        // Write log file
-        var logPath = doc.path + '/' + doc.name.replace(/\.ai$/i, '') + '_debug.txt';
-        LogManager.writeToFile(logPath);
-        return ExportManager.exportLayerToPNG(targetLayer, exportPath);
-        
-    } catch(e) {
-        DebugLogManager.error('Error in main execution: ' + e);
+
+        DebugLogManager.info(funName + "Processing completed successfully for:", doc.name);
+        return true;
+
+    } catch (e) {
+        DebugLogManager.error(funName + "Error processing document:", doc.name, e.toString());
+
+        // ✅ Log errors separately
+        LogManager.writeToFile(null, funName + "Error processing document: " + doc.name + "\n" + e.toString());
         return false;
     }
 }
+
+
+
 
 // Execute
 main();
