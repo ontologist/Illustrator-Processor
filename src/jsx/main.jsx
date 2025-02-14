@@ -155,13 +155,17 @@ var LOG_KEYS = {
     LAYER_NAME: 'Processing layer',
     LAYER_CHARS: 'Layer chars',
     TARGET_FOUND: 'Found target layer',
-    AREA_POINTS: 'Area',
+    AREA_POINTS: 'Area (ptsq)',
     AREA_MM: 'Area (mmsq)',
     AREA_CM: 'Area (cmsq)',
     HEIGHT_POINTS: 'Max Height (points)',
     HEIGHT_MM: 'Max Height (mm)',
     HEIGHT_CM: 'Max Height (cm)',
     LED_COUNT: 'LED Group Count',
+
+    SHAPES_LAYER: 'Shapes Layer',
+    TARGET_LAYER: 'Target layer',
+    LED_LAYER: 'LED layer',
     
 /****
  *  The following LOG_KEYS are just the roots and need
@@ -501,6 +505,290 @@ var OverlapDetectionManager = {
         return refinedCandidateLEDs;
     },
 
+    // Add to OverlapDetectionManager
+    /**
+     * Logs interlaced comparison of items with limits
+     */
+    _logInterlacedComparison: function(processingItems, tempItems, type, limit) {
+        try {
+            var maxItems = Math.min(processingItems.length, tempItems.length, limit);
+            
+            DebugLogManager.info("\n=== " + type + " Position Comparison (showing first " + maxItems + " items) ===");
+            
+            for (var i = 0; i < maxItems; i++) {
+                var procItem = processingItems[i];
+                var tempItem = tempItems[i];
+                var procBBox = this.getBoundingBox(procItem);
+                var tempBBox = this.getBoundingBox(tempItem);
+                
+                if (procBBox && tempBBox) {
+                    DebugLogManager.info(
+                        "MyList:  " + type + " " + (i + 1) + ": " + 
+                        procItem.name + " at (x: " + procBBox.x.toFixed(2) + 
+                        ", y: " + procBBox.y.toFixed(2) + ")"
+                    );
+                    DebugLogManager.info(
+                        "LayerList: " + type + " " + (i + 1) + ": " + 
+                        tempItem.name + " at (x: " + tempBBox.x.toFixed(2) + 
+                        ", y: " + tempBBox.y.toFixed(2) + ")\n"
+                    );
+                }
+            }
+
+            if (processingItems.length !== tempItems.length) {
+                DebugLogManager.warn(
+                    "Note: Item count mismatch - Processing list: " + 
+                    processingItems.length + ", Temp layer: " + tempItems.length
+                );
+            }
+        } catch (error) {
+            DebugLogManager.error("[VISUAL CHECK] Error in interlaced logging:", error);
+        }
+    },
+
+    /**
+     * Compare items in list with items in tempLayer
+     */
+    _verifyTempLayerMatch: function(items, type, tempLayer) {
+        try {
+            DebugLogManager.info("[TEMP LAYER CHECK] Verifying " + type + " in temp layer");
+            
+            // Get items from temp layer based on type
+            var tempItems = [];
+            for (var i = 0; i < tempLayer.pageItems.length; i++) {
+                var item = tempLayer.pageItems[i];
+                if ((type === "Parts" && (item.typename === "PathItem" || item.typename === "CompoundPathItem")) ||
+                    (type === "LEDs" && item.typename === "GroupItem")) {
+                    tempItems.push(item);
+                }
+            }
+
+            // Log interlaced comparison with appropriate limits
+            var limit = (type === "Parts") ? 10 : 20;
+            this._logInterlacedComparison(items, tempItems, type, limit);
+
+        } catch (error) {
+            DebugLogManager.error("[TEMP LAYER CHECK] Error verifying temp layer:", error);
+        }
+    },
+
+    // Add to OverlapDetectionManager
+    /**
+     * Checks ordering direction of items
+     * Returns: 1 for top-left to bottom-right
+     *         -1 for bottom-right to top-left
+     *          0 if no clear ordering
+     */
+    _checkOrderingDirection: function(items) {
+        try {
+            if (!items || items.length < 2) return 1;
+
+            var forwardCount = 0;
+            var reverseCount = 0;
+            var tolerance = 5; // points
+
+            // Check first few items to determine likely direction
+            var checkItems = Math.min(5, items.length - 1);
+            for (var i = 0; i < checkItems; i++) {
+                var current = items[i];
+                var next = items[i + 1];
+                
+                var currentBBox = this.getBoundingBox(current);
+                var nextBBox = this.getBoundingBox(next);
+                
+                if (!currentBBox || !nextBBox) continue;
+
+                var yDiff = currentBBox.y - nextBBox.y;
+                
+                if (Math.abs(yDiff) <= tolerance) {
+                    // On same row, check x direction
+                    if (currentBBox.x < nextBBox.x) forwardCount++;
+                    if (currentBBox.x > nextBBox.x) reverseCount++;
+                } else {
+                    // Different rows, check y direction
+                    if (currentBBox.y > nextBBox.y) forwardCount++;
+                    if (currentBBox.y < nextBBox.y) reverseCount++;
+                }
+            }
+
+            if (forwardCount > reverseCount) return 1;
+            if (reverseCount > forwardCount) return -1;
+            return 0;
+        } catch (error) {
+            DebugLogManager.error("[SPATIAL] Error checking ordering direction:", error);
+            return 0;
+        }
+    },
+
+    /**
+     * Verifies if items are ordered from top-left to bottom-right
+     * Now checks for both forward and reverse ordering
+     */
+    _verifySpatialOrder: function(items) {
+        try {
+            if (!items || items.length < 2) return true;
+
+            // First check the ordering direction
+            var direction = this._checkOrderingDirection(items);
+            
+            if (direction === -1) {
+                DebugLogManager.warn("[SPATIAL] Items appear to be in reverse order (bottom-right to top-left)");
+                // Could add code here to reverse the array if needed
+                return false;
+            }
+            
+            if (direction === 0) {
+                DebugLogManager.warn("[SPATIAL] No clear spatial ordering detected");
+                return false;
+            }
+
+            // Proceed with forward order verification
+            for (var i = 0; i < items.length - 1; i++) {
+                var current = items[i];
+                var next = items[i + 1];
+                
+                var currentBBox = this.getBoundingBox(current);
+                var nextBBox = this.getBoundingBox(next);
+                
+                if (!currentBBox || !nextBBox) {
+                    DebugLogManager.error("[SPATIAL] Could not get bounding box for items at index " + i);
+                    continue;
+                }
+
+                var tolerance = 5; // points
+                var yDiff = Math.abs(currentBBox.y - nextBBox.y);
+                
+                if (yDiff <= tolerance) {
+                    // If on same row, check x ordering (left to right)
+                    if (currentBBox.x > nextBBox.x) {
+                        DebugLogManager.warn("[SPATIAL] Items on same row not ordered left-to-right: " + 
+                            current.name + " (" + currentBBox.x.toFixed(2) + ") -> " + 
+                            next.name + " (" + nextBBox.x.toFixed(2) + ")");
+                        return false;
+                    }
+                } else if (currentBBox.y < nextBBox.y) {
+                    // If different rows, previous should be higher (y decreases top to bottom)
+                    DebugLogManager.warn("[SPATIAL] Items not ordered top-to-bottom: " + 
+                        current.name + " (" + currentBBox.y.toFixed(2) + ") -> " + 
+                        next.name + " (" + nextBBox.y.toFixed(2) + ")");
+                    return false;
+                }
+            }
+            
+            return true;
+        } catch (error) {
+            DebugLogManager.error("[SPATIAL] Error verifying spatial order:", error);
+            return false;
+        }
+    },
+
+    /**
+     * Verify spatial ordering of both parts and LEDs
+     */
+    _verifyAllSpatialOrdering: function(partItems, ledItems) {
+        DebugLogManager.info("[SPATIAL] Checking spatial ordering for " + 
+            partItems.length + " parts and " + ledItems.length + " LEDs");
+        
+        var partsOrdered = this._verifySpatialOrder(partItems);
+        var ledsOrdered = this._verifySpatialOrder(ledItems);
+        
+        if (!partsOrdered) {
+            DebugLogManager.warn("[SPATIAL] Parts are not in expected top-left to bottom-right order!");
+        }
+        if (!ledsOrdered) {
+            DebugLogManager.warn("[SPATIAL] LEDs are not in expected top-left to bottom-right order!");
+        }
+        
+        return {
+            ordered: partsOrdered && ledsOrdered,
+            partsOrdered: partsOrdered,
+            ledsOrdered: ledsOrdered
+        };
+    },
+
+
+    /**
+     * Helper function to count object properties in ExtendScript
+     */
+    _countProperties: function(obj) {
+        var count = 0;
+        for (var prop in obj) {
+            if (obj.hasOwnProperty(prop)) {
+                count++;
+            }
+        }
+        return count;
+    },
+
+/**
+ * Main detection function with spatial verification
+ */
+// Add to OverlapDetectionManager
+detectOverlap: function(partItems, ledItems) {
+    try {
+        DebugLogManager.info("[DETECT] Starting overlap detection with caching");
+        
+        // Reset process results
+        this._processResults = {
+            pass1_bbox_overlaps: {},
+            pass1_confirmed: {},
+            pass1_unassigned: [],
+            pass1_multi_assigned: {},
+            pass2_confirmed: {},
+            pass2_unassigned: [],
+            pass2_multi_assigned: {}
+        };
+
+        // PASS 1
+        DebugLogManager.info("[PASS1] Starting pass 1 processing");
+        
+        // Step 1: Bounding box overlap
+        var bboxResults = this.simpleBoundingBoxOverlap(partItems, ledItems);
+        DebugLogManager.info("[PASS1] Completed bounding box overlap detection");
+        
+        // Log bbox overlap results
+        for (var partName in bboxResults) {
+            if (bboxResults.hasOwnProperty(partName)) {
+                var overlaps = bboxResults[partName].ledNames;
+                DebugLogManager.info("[BBOX] Part " + partName + " overlaps with " + 
+                    overlaps.length + " LEDs: " + overlaps.join(", "));
+            }
+        }
+        
+        // Step 2: Geometry refinement
+        var confirmedResults = this.refineOverlapWithGeometry(bboxResults, partItems, ledItems);
+        DebugLogManager.info("[PASS1] Completed geometry refinement");
+        
+        // Count multi-assigned LEDs
+        var multiAssignCount = 0;
+        for (var ledName in this._processResults.pass1_multi_assigned) {
+            if (this._processResults.pass1_multi_assigned.hasOwnProperty(ledName)) {
+                multiAssignCount++;
+            }
+        }
+
+        // Log summary
+        DebugLogManager.info("[SUMMARY] Pass 1 Results:");
+        DebugLogManager.info("  - Total Parts: " + partItems.length);
+        DebugLogManager.info("  - Total LEDs: " + ledItems.length);
+        DebugLogManager.info("  - Unassigned LEDs: " + this._processResults.pass1_unassigned.length);
+        DebugLogManager.info("  - Multi-assigned LEDs: " + multiAssignCount);
+
+        return {
+            pass1: {
+                bbox_overlaps: this._processResults.pass1_bbox_overlaps,
+                confirmed: this._processResults.pass1_confirmed,
+                unassigned: this._processResults.pass1_unassigned,
+                multi_assigned: this._processResults.pass1_multi_assigned
+            }
+        };
+
+    } catch (error) {
+        DebugLogManager.error("[DETECT] Error in detectOverlap: " + error.toString());
+        return null;
+    }
+},
+
     /**
      * Detects overlapping LED items by performing both bounding box and geometry-based filtering.
      * 境界ボックスと形状ベースのフィルタリングの両方を実行して、重なりのある LED アイテムを検出する。
@@ -509,6 +797,7 @@ var OverlapDetectionManager = {
      * @param {Array} ledItems - The list of all LED items. / すべての LED アイテムのリスト。
      * @returns {Array} The final list of LEDs that are confirmed to overlap. / 重なりが確認された LED の最終リスト。
      */
+/*
     detectOverlap: function (partItems, ledItems) {
         try {
             DebugLogManager.info("[INFO] Starting full overlap detection process for: " + partItems);
@@ -526,7 +815,7 @@ var OverlapDetectionManager = {
             return [];
         }
     },
-
+/*
     /**
      * Checks if a point is inside a polygon.
      */
@@ -876,6 +1165,10 @@ var LayerManager = {
                 LogManager._data.parts.push(newPart);
             }
  
+            // Verify ordering after moving
+            DebugLogManager.info("Verifying part ordering after move to temp layer...");
+            OverlapDetectionManager._verifyTempLayerMatch(parts, "Parts", tempLayer);
+
 
             return movedParts;
         } catch (e) {
@@ -911,7 +1204,9 @@ var LayerManager = {
                 LogManager._data.leds.push(newLed);
             }
 
-
+        // Verify ordering after moving
+        DebugLogManager.info("Verifying LED ordering after move to temp layer...");
+        OverlapDetectionManager._verifyTempLayerMatch(leds, "LEDs", tempLayer);
 
         return movedLeds;
             // Already sorted when identified and duplicated above
@@ -1582,7 +1877,8 @@ var LogManager = {
                     
                     // LED count
                     output += LOG_KEYS.SHAPE_LED_COUNT + index + ": " + shape.ledCount + "\n";
-                }
+                    output += LOG_KEYS.SHAPE_LED_LIST + index + ": " + (shape.ledList ? shape.ledList.join(", ") : "") + "\n";
+              }
             } else {
                 output += "\n🚨 No shape measurements found. 🚨\n";
             }
@@ -2118,9 +2414,13 @@ function main() {
                 var area = PathManager.getPathArea(part);
                 var ledCount = results[part.name] ? results[part.name].ledCount : 0;
 
+                // Get LED information including the list of LEDs
+                var ledInfo = results[part.name] || { ledCount: 0, leds: [] };
+
+
                 // Store in LogManager._data for the shape-specific keys
                 // Format index with leading zeros (e.g., "001", "002", etc.)
-                var paddedIndex = ("000" + index).slice(-3);
+                var paddedIndex = ("0000" + index).slice(-4);
                 
                 LogManager._data[LOG_KEYS.SHAPE_NAME_ROOT + paddedIndex] = part.name;
                 LogManager._data[LOG_KEYS.SHAPE_WIDTH_PT + paddedIndex] = width.pt.toFixed(2);
@@ -2140,7 +2440,8 @@ function main() {
                     width: width,
                     height: height,
                     area: area,
-                    ledCount: ledCount
+                    ledCount: ledCount,
+                    ledList: ledInfo.leds
                 };
                 
                 LogManager._data.shapes.push(shapeData);
