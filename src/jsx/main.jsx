@@ -65,6 +65,101 @@ function serialize(obj) {
     return str.slice(0, -2) + "}";
 }
 
+var MeasurementManager = {
+    POINTS_TO_MM: 0.352778,
+    POINTS_TO_CM: 0.0352778,
+
+    getPathMeasurements: function(item) {
+        try {
+            if (!item) return null;
+
+            // Ensure fill is applied before measuring area
+            this.ensureRGBFill(item);
+
+            return {
+                width: {
+                    pt: item.width, // ✅ Native .width
+                    mm: this.pointsToMM(item.width),
+                    cm: this.pointsToCM(item.width)
+                },
+                height: {
+                    pt: item.height, // ✅ Native .height
+                    mm: this.pointsToMM(item.height),
+                    cm: this.pointsToCM(item.height)
+                },
+                area: {
+                    pt: Math.abs(item.area), // ✅ Native .area
+                    mm: this.squarePointsToMMSQ(item.area),
+                    cm: this.squarePointsToCMSQ(item.area)
+                }
+            };
+        } catch (e) {
+            DebugLogManager.error("Error getting path measurements:", e.toString());
+            return null;
+        }
+    },
+
+    ensureRGBFill: function(item) {
+        try {
+            if (!item || (item.typename !== "PathItem" && item.typename !== "CompoundPathItem")) {
+                return;
+            }
+
+            if (!item.filled || !(item.fillColor instanceof RGBColor)) {
+                var blackColor = new RGBColor();
+                blackColor.red = 0;
+                blackColor.green = 0;
+                blackColor.blue = 0;
+
+                item.filled = true;
+                item.fillColor = blackColor;
+
+                DebugLogManager.info("[FIX] Applied black RGB fill to: " + item.name);
+            }
+        } catch (e) {
+            DebugLogManager.error("Error in ensureRGBFill:", e.toString());
+        }
+    },
+
+    getVertices: function(item) {
+        try {
+            if (!item || (item.typename !== "PathItem" && item.typename !== "CompoundPathItem")) return [];
+
+            var vertices = [];
+            for (var i = 0; i < item.pathPoints.length; i++) {
+                vertices.push({
+                    x: item.pathPoints[i].anchor[0],
+                    y: item.pathPoints[i].anchor[1]
+                });
+            }
+
+            return vertices;
+        } catch (e) {
+            DebugLogManager.error("Error getting vertices:", e.toString());
+            return [];
+        }
+    },
+
+    // Conversion methods for linear measurements
+    pointsToMM: function(points) {
+        return points * this.POINTS_TO_MM;
+    },
+
+    pointsToCM: function(points) {
+        return points * this.POINTS_TO_CM;
+    },
+
+    // Methods for area conversions (squared conversion factors)
+    squarePointsToMMSQ: function(points) {
+        return points * Math.pow(this.POINTS_TO_MM, 2);
+    },
+
+    squarePointsToCMSQ: function(sqPoints) {
+        return sqPoints * Math.pow(this.POINTS_TO_CM, 2);
+    }
+};
+
+
 // Debug Log Manager
 var DebugLogManager = {
     enabled: true,
@@ -749,7 +844,7 @@ detectOverlap: function(partItems, ledItems) {
         // Log bbox overlap results
         for (var partName in bboxResults) {
             if (bboxResults.hasOwnProperty(partName)) {
-                var overlaps = bboxResults[partName].ledNames;
+                var overlaps = bboxResults[partName];
                 DebugLogManager.info("[BBOX] Part " + partName + " overlaps with " + 
                     overlaps.length + " LEDs: " + overlaps.join(", "));
             }
@@ -1166,8 +1261,8 @@ var LayerManager = {
             }
  
             // Verify ordering after moving
-            DebugLogManager.info("Verifying part ordering after move to temp layer...");
-            OverlapDetectionManager._verifyTempLayerMatch(parts, "Parts", tempLayer);
+            //DebugLogManager.info("Verifying part ordering after move to temp layer...");
+            //OverlapDetectionManager._verifyTempLayerMatch(parts, "Parts", tempLayer);
 
 
             return movedParts;
@@ -1205,8 +1300,8 @@ var LayerManager = {
             }
 
         // Verify ordering after moving
-        DebugLogManager.info("Verifying LED ordering after move to temp layer...");
-        OverlapDetectionManager._verifyTempLayerMatch(leds, "LEDs", tempLayer);
+        //DebugLogManager.info("Verifying LED ordering after move to temp layer...");
+        //OverlapDetectionManager._verifyTempLayerMatch(leds, "LEDs", tempLayer);
 
         return movedLeds;
             // Already sorted when identified and duplicated above
@@ -2330,7 +2425,7 @@ function main() {
     try {
         var funName = "[MAIN] ";
         DebugLogManager.info(funName + "Starting main processing...");
-        
+
         // Get document and verify
         var doc = app.activeDocument;
         if (!doc) {
@@ -2384,7 +2479,7 @@ function main() {
 
         // Calculate and verify heights
         var height = LayerManager.getMaxHeight(initData.partsLayer);
-        DebugLogManager.info(funName + "Calculated height: " + height);
+        DebugLogManager.info(funName + "Calculated max height: " + height);
         
         LogManager._data[LOG_KEYS.HEIGHT_POINTS] = height;
         LogManager._data[LOG_KEYS.HEIGHT_MM] = (height / 2.834645).toFixed(2);
@@ -2477,8 +2572,6 @@ function main() {
         }
     }
 }
-
-
 
 
 // Execute
