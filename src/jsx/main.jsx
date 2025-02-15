@@ -65,6 +65,144 @@ function serialize(obj) {
     return str.slice(0, -2) + "}";
 }
 
+/**
+ * Unit conversion utilities for ExtendScript
+ * Provides comprehensive conversion between points, millimeters, and centimeters
+ * in both linear and square measurements
+ */
+
+
+/**
+ * Converts points to millimeters with input validation for ExtendScript
+ * @param {Number|String} points - The number of points to convert
+ * @returns {Number} The equivalent length in millimeters
+ * @throws {Error} If input is not a valid number
+ */
+function pointsToMM(points) {
+    // Check if input exists
+    if (points == undefined) {
+        throw new Error('Input cannot be empty');
+    }
+    
+    // Get the input type using ExtendScript's typeof operator
+    var inputType = typeof points;
+    
+    // Initialize our numeric value
+    var pointsNum;
+    
+    // Handle different input types
+    if (inputType === 'number') {
+        pointsNum = points;
+    } else if (inputType === 'string') {
+        // Remove any whitespace and try to convert to number
+        pointsNum = parseFloat(points.toString().replace(/\s/g, ''));
+    } else {
+        throw new Error('Input must be a number or numeric string');
+    }
+    
+    // Check if conversion resulted in a valid number
+    if (isNaN(pointsNum)) {
+        throw new Error('Input must be a valid number');
+    }
+    
+    // Check if input is finite (avoiding Number.isFinite)
+    if (pointsNum == Infinity || pointsNum == -Infinity) {
+        throw new Error('Input must be a finite number');
+    }
+    
+    // Convert points to millimeters
+    // 1 point = 0.3527777778 mm (1/72 inch × 25.4 mm/inch)
+    var POINTS_TO_MM = 0.3527777778;
+    return pointsNum * POINTS_TO_MM;
+}
+
+/**
+ * Converts points to centimeters with input validation for ExtendScript
+ * Uses pointsToMillimeters function for consistent conversion
+ * @param {Number|String} points - The number of points to convert
+ * @returns {Number} The equivalent length in centimeters
+ * @throws {Error} If input is not a valid number
+ */
+function pointsToCM(points) {
+    // Use our existing pointsToMillimeters function for validation and initial conversion
+    var millimeters = pointsToMM(points);
+    
+    // Convert millimeters to centimeters (1 cm = 10 mm)
+    return millimeters / 10;
+}
+
+/**
+ * Converts square points to square millimeters with input validation
+ * Uses pointsToMillimeters function as a base for conversion
+ * @param {Number|String} squarePoints - The number of square points to convert
+ * @returns {Number} The equivalent area in square millimeters
+ * @throws {Error} If input is not a valid number
+ */
+function squarePointsToSQMM(squarePoints) {
+    // First validate and convert the input using our existing function
+    // We'll take the square root of the input first, convert to mm, then square the result
+    // This gives us the same result as squaring the conversion factor
+    
+    // Check if the input is negative (areas can't be negative)
+    var inputNum = parseFloat(squarePoints);
+    if (!isNaN(inputNum) && inputNum < 0) {
+        throw new Error('Area cannot be negative');
+    }
+    
+    // Calculate the square root of the input
+    // This converts our square points into linear points
+    var linearPoints = Math.sqrt(squarePoints);
+    
+    // Convert linear points to linear millimeters
+    var linearMillimeters = pointsToMM(linearPoints);
+    
+    // Square the result to get square millimeters
+    return linearMillimeters * linearMillimeters;
+}
+
+
+
+/**
+ * Converts square points directly to square centimeters
+ * This function provides a direct conversion without going through square millimeters
+ * @param {Number|String} squarePoints - The number of square points to convert
+ * @returns {Number} The equivalent area in square centimeters
+ * @throws {Error} If input is not a valid number or is negative
+ */
+function squarePointsToSQCM(squarePoints) {
+    // Check if input exists
+    if (squarePoints == undefined) {
+        throw new Error('Input cannot be empty');
+    }
+    
+    // Convert input to number if it's a string
+    var sqPoints = parseFloat(squarePoints);
+    
+    // Validate the converted number
+    if (isNaN(sqPoints)) {
+        throw new Error('Input must be a valid number');
+    }
+    
+    // Check for negative values
+    if (sqPoints < 0) {
+        throw new Error('Area cannot be negative');
+    }
+    
+    // Check if input is finite
+    if (sqPoints == Infinity || sqPoints == -Infinity) {
+        throw new Error('Input must be a finite number');
+    }
+    
+    // Convert square points to square centimeters
+    // We calculate this using the square of the points-to-millimeters conversion factor,
+    // then divide by 100 to convert from sq mm to sq cm
+    // 1 point = 0.3527777778 mm = 0.03527777778 cm
+    // Therefore, 1 sq point = (0.03527777778)² sq cm
+    var POINTS_TO_CM = 0.03527777778;
+    return sqPoints * POINTS_TO_CM * POINTS_TO_CM;
+}
+
+
 // Debug Log Manager
 var DebugLogManager = {
     enabled: true,
@@ -264,6 +402,16 @@ var SortingManager = {
     sortLEDsByGrid: function (leds, xTolerance) {
         return this.sortByGrid(leds, xTolerance);
     },
+
+    /**
+     * 
+     * SOON TO BE DEPRECATED. Use sortByGridEnhanced instead
+     * 
+     * @param {
+     * } items 
+     * @param {*} xTolerance 
+     * @returns 
+     */
     sortByGrid: function (items, xTolerance) {
         xTolerance = xTolerance || 20;
         
@@ -327,6 +475,189 @@ var SortingManager = {
         }
         
         return sortedItems;
+    },
+
+
+    // Add new enhanced sorting method
+    sortByGridEnhanced: function (items, xTolerance) {
+        try {
+            xTolerance = xTolerance || 20;
+            
+            // Create array of items with positions
+            var itemsWithPos = [];
+            for (var i = 0; i < items.length; i++) {
+                var bounds = items[i].geometricBounds;
+                if (bounds && bounds.length === 4) {
+                    itemsWithPos.push({
+                        item: items[i],
+                        x: bounds[0],
+                        y: bounds[1]
+                    });
+                } else {
+                    DebugLogManager.warn("Invalid bounds for item:", items[i].name);
+                }
+            }
+            
+            
+            // Group items into columns using ExtendScript-compatible object
+            var columns = {};
+            var columnKeys = [];
+            
+            // Group by x-position
+            for (var i = 0; i < itemsWithPos.length; i++) {
+                var itemData = itemsWithPos[i];
+                var foundColumn = false;
+                
+                // Check existing columns
+                for (var j = 0; j < columnKeys.length; j++) {
+                    if (Math.abs(itemData.x - columnKeys[j]) <= xTolerance) {
+                        columns[columnKeys[j]].push(itemData);
+                        foundColumn = true;
+                        break;
+                    }
+                }
+                
+                // Create new column if needed
+                if (!foundColumn) {
+                    columnKeys.push(itemData.x);
+                    columns[itemData.x] = [itemData];
+                }
+            }
+            
+            // Sort column keys left to right
+            columnKeys.sort(function(a, b) {
+                return a - b;
+            });
+            
+            // Sort items within columns and combine results
+            var sortedItems = [];
+            for (var i = 0; i < columnKeys.length; i++) {
+                var columnItems = columns[columnKeys[i]];
+                
+                // Sort this column top to bottom
+                columnItems.sort(function(a, b) {
+                    return b.y - a.y;
+                });
+                
+                // Add sorted items to final array
+                for (var j = 0; j < columnItems.length; j++) {
+                    sortedItems.push(columnItems[j].item);
+                }
+            }
+            
+            DebugLogManager.info("Sorted " + sortedItems.length + " items into " + 
+                                columnKeys.length + " columns");
+            return sortedItems;
+            
+        } catch (e) {
+            DebugLogManager.error("Error in sortByGridEnhanced:", e.toString());
+            return items;
+        }
+    },
+
+
+    /**
+     * New method: Sorts validated paths with enhanced error checking
+     * 新メソッド：拡張エラーチェック付きで検証済みパスをソート
+     */
+    sortValidatedPaths: function(paths, xTolerance) {
+        try {
+            DebugLogManager.info("Starting validated path sorting");
+            
+            // Validate input
+            if (!paths || !paths.length) {
+                DebugLogManager.warn("No paths provided for sorting");
+                return [];
+            }
+
+            var validPaths = [];
+            var invalidCount = 0;
+
+            // Validate each path before sorting
+            for (var i = 0; i < paths.length; i++) {
+                var path = paths[i];
+                if (this._validatePathForSorting(path)) {
+                    validPaths.push(path);
+                } else {
+                    invalidCount++;
+                }
+            }
+
+            DebugLogManager.info("Validation complete - Valid: " + validPaths.length + 
+                                ", Invalid: " + invalidCount);
+
+            // Use existing sort method with validated paths
+            return this.sortByGrid(validPaths, xTolerance);
+
+        } catch (e) {
+            DebugLogManager.error("Error in sortValidatedPaths:", e.toString());
+            return paths;
+        }
+    },
+
+    /**
+     * Validates a path for sorting
+     * ソートのためのパス検証
+     * @private
+     */
+    _validatePathForSorting: function(path) {
+        try {
+            if (!path) return false;
+
+            // Check for valid bounds
+            var bounds = path.geometricBounds;
+            if (!bounds || bounds.length !== 4) {
+                DebugLogManager.warn("Invalid bounds for path:", path.name);
+                return false;
+            }
+
+            // Check for valid position data
+            if (isNaN(bounds[0]) || isNaN(bounds[1])) {
+                DebugLogManager.warn("Invalid position data for path:", path.name);
+                return false;
+            }
+
+            return true;
+        } catch (e) {
+            DebugLogManager.error("Error validating path for sorting:", e.toString());
+            return false;
+        }
+    },
+
+    /**
+     * Verifies sort order
+     * ソート順序を検証
+     * @private
+     */
+    _verifySortOrder: function(sortedItems) {
+        try {
+            var issues = [];
+            for (var i = 0; i < sortedItems.length - 1; i++) {
+                var current = sortedItems[i];
+                var next = sortedItems[i + 1];
+                
+                var currentBounds = current.geometricBounds;
+                var nextBounds = next.geometricBounds;
+                
+                if (currentBounds[1] < nextBounds[1]) { // y-position check
+                    issues.push("Y-order issue between items " + 
+                              current.name + " and " + next.name);
+                }
+            }
+            
+            if (issues.length > 0) {
+                DebugLogManager.warn("Sort order issues found:", issues.length);
+                for (var i = 0; i < issues.length; i++) {
+                    DebugLogManager.warn(issues[i]);
+                }
+                return false;
+            }
+            
+            return true;
+        } catch (e) {
+            DebugLogManager.error("Error verifying sort order:", e.toString());
+            return false;
+        }
     }
 };
 
@@ -405,26 +736,55 @@ var OverlapDetectionManager = {
      * @param {Array} ledItems - The list of LED group items. / LED グループアイテムのリスト。
      * @returns {Array} The list of LEDs that pass the bounding box check. / 境界ボックスチェックを通過した LED のリスト。
      */
-    simpleBoundingBoxOverlap: function (partItems, ledItems) {
-        var candidateLEDs = {};
-        for (var j = 0; j < partItems.length; j++) {
-            var part = partItems[j];
-            var partName = part.name;
+    simpleBoundingBoxOverlap: function(partItems, ledItems) {
+        try {
+            DebugLogManager.info("[BBOX] Starting bounding box overlap detection");
+            var bboxResults = {};
 
-            for (var i = 0; i < ledItems.length; i++) {
-                var led = ledItems[i];
-                var ledName = led.name;
-
-                if (this.isBoundingBoxOverlapping(this.getBoundingBox(led), this.getBoundingBox(part))) {
-                    if (!candidateLEDs[partName]) {
-                        candidateLEDs[partName] = [];
-                    }
-                    candidateLEDs[partName].push(ledName);
-                    DebugLogManager.info("Bounding box of " + ledName + " overlaps with bounding box of " + partName);
+            // Process each part
+            for (var j = 0; j < partItems.length; j++) {
+                var part = partItems[j];
+                var partName = part.name;
+                var partBBox = this.getBoundingBox(part);
+                
+                if (!partBBox) {
+                    DebugLogManager.error("[BBOX] Could not get bounding box for part: " + partName);
+                    continue;
                 }
+
+                // Initialize this part's results - just an array, not an object
+                bboxResults[partName] = [];  // Changed from {ledNames: [], bbox_coords: partBBox}
+
+                // Check against each LED
+                for (var i = 0; i < ledItems.length; i++) {
+                    var led = ledItems[i];
+                    var ledName = led.name;
+                    var ledBBox = this.getBoundingBox(led);
+
+                    if (!ledBBox) {
+                        DebugLogManager.error("[BBOX] Could not get bounding box for LED: " + ledName);
+                        continue;
+                    }
+
+                    if (this.isBoundingBoxOverlapping(ledBBox, partBBox)) {
+                        bboxResults[partName].push(ledName);  // Changed from bboxResults[partName].ledNames.push()
+                        DebugLogManager.info("[BBOX] Found overlap between " + ledName + " and " + partName);
+                    }
+                }
+                
+                DebugLogManager.info("[BBOX] Part " + partName + " has " + 
+                    bboxResults[partName].length + " overlapping LEDs");
             }
+
+            // Store results in process cache
+            this._processResults.pass1_bbox_overlaps = bboxResults;
+            
+            return bboxResults;
+
+        } catch (error) {
+            DebugLogManager.error("[BBOX] Error in simpleBoundingBoxOverlap: " + error.toString());
+            return {};
         }
-        return candidateLEDs;
     },
 
     /**
@@ -436,6 +796,89 @@ var OverlapDetectionManager = {
      * @param {Array} myLeds - Array of GroupItems representing LEDs. / LED を表す GroupItem の配列。
      * @returns {Object} Refined mapping of parts to LEDs with insideness percentages. / 精査された Part-LED マッピング（内部割合付き）。
      */
+    refineOverlapWithGeometry: function (candidateLEDs, myParts, myLeds) {
+        var refinedCandidateLEDs = {};
+
+        try {
+            DebugLogManager.info("[GEOM] Starting geometric overlap refinement...");
+
+            for (var partName in candidateLEDs) {
+                if (!candidateLEDs.hasOwnProperty(partName)) {
+                    continue;
+                }
+
+                var part = null;
+                for (var i = 0; i < myParts.length; i++) {
+                    if (myParts[i].name === partName) {
+                        part = myParts[i];
+                        break;
+                    }
+                }
+
+                if (!part) {
+                    DebugLogManager.warning("[GEOM] Path not found for " + partName);
+                    continue;
+                }
+
+                var partVertices = PathManager.getPathVertices(part);
+                refinedCandidateLEDs[partName] = {
+                    ledCount: 0,
+                    ledList: [],
+                    insideness: {}
+                };
+
+                // candidateLEDs[partName] is now an array of LED names
+                for (var i = 0; i < candidateLEDs[partName].length; i++) {
+                    var ledName = candidateLEDs[partName][i];
+
+                    var led = null;
+                    for (var j = 0; j < myLeds.length; j++) {
+                        if (myLeds[j].name === ledName) {
+                            led = myLeds[j];
+                            break;
+                        }
+                    }
+
+                    if (!led) {
+                        DebugLogManager.warning("[GEOM] LED not found for " + ledName);
+                        continue;
+                    }
+
+                    var ledVertices = LEDManager.getLEDVertices(led);
+                    var insideCount = 0;
+
+                    for (var k = 0; k < ledVertices.length; k++) {
+                        if (this.isPointInPolygon(ledVertices[k], partVertices)) {
+                            insideCount++;
+                        }
+                    }
+
+                    var insidenessPercentage = (ledVertices.length > 0) ? (insideCount / ledVertices.length) * 100 : 0;
+                    if (insideCount > 0) {
+                        refinedCandidateLEDs[partName].ledCount++;
+                        refinedCandidateLEDs[partName].ledList.push(ledName);
+                        refinedCandidateLEDs[partName].insideness[ledName] = insidenessPercentage;
+                        
+                        DebugLogManager.info("[GEOM] " + ledName + " -> " + partName + 
+                            ": " + insidenessPercentage.toFixed(2) + "% inside");
+                    }
+                }
+            }
+
+            // Store in process results
+            this._processResults.pass1_confirmed = refinedCandidateLEDs;
+            
+            DebugLogManager.info("[GEOM] Geometric overlap refinement completed.");
+            DebugLogManager.info("[GEOM] Results: " + this.safeStringify(refinedCandidateLEDs));
+            
+            return refinedCandidateLEDs;
+
+        } catch (error) {
+            DebugLogManager.error("[GEOM] Error refining overlap: " + error);
+            return {};
+        }
+    },
+    /*
     refineOverlapWithGeometry: function (candidateLEDs, myParts, myLeds) {
         var refinedCandidateLEDs = {};
 
@@ -504,11 +947,11 @@ var OverlapDetectionManager = {
 
         return refinedCandidateLEDs;
     },
-
+*/
     // Add to OverlapDetectionManager
-    /**
-     * Logs interlaced comparison of items with limits
-     */
+    
+    // Logs interlaced comparison of items with limits
+    
     _logInterlacedComparison: function(processingItems, tempItems, type, limit) {
         try {
             var maxItems = Math.min(processingItems.length, tempItems.length, limit);
@@ -545,6 +988,8 @@ var OverlapDetectionManager = {
             DebugLogManager.error("[VISUAL CHECK] Error in interlaced logging:", error);
         }
     },
+
+    
 
     /**
      * Compare items in list with items in tempLayer
@@ -720,102 +1165,101 @@ var OverlapDetectionManager = {
         return count;
     },
 
-/**
- * Main detection function with spatial verification
- */
-// Add to OverlapDetectionManager
-detectOverlap: function(partItems, ledItems) {
-    try {
-        DebugLogManager.info("[DETECT] Starting overlap detection with caching");
-        
-        // Reset process results
-        this._processResults = {
-            pass1_bbox_overlaps: {},
-            pass1_confirmed: {},
-            pass1_unassigned: [],
-            pass1_multi_assigned: {},
-            pass2_confirmed: {},
-            pass2_unassigned: [],
-            pass2_multi_assigned: {}
-        };
-
-        // PASS 1
-        DebugLogManager.info("[PASS1] Starting pass 1 processing");
-        
-        // Step 1: Bounding box overlap
-        var bboxResults = this.simpleBoundingBoxOverlap(partItems, ledItems);
-        DebugLogManager.info("[PASS1] Completed bounding box overlap detection");
-        
-        // Log bbox overlap results
-        for (var partName in bboxResults) {
-            if (bboxResults.hasOwnProperty(partName)) {
-                var overlaps = bboxResults[partName].ledNames;
-                DebugLogManager.info("[BBOX] Part " + partName + " overlaps with " + 
-                    overlaps.length + " LEDs: " + overlaps.join(", "));
-            }
-        }
-        
-        // Step 2: Geometry refinement
-        var confirmedResults = this.refineOverlapWithGeometry(bboxResults, partItems, ledItems);
-        DebugLogManager.info("[PASS1] Completed geometry refinement");
-        
-        // Count multi-assigned LEDs
-        var multiAssignCount = 0;
-        for (var ledName in this._processResults.pass1_multi_assigned) {
-            if (this._processResults.pass1_multi_assigned.hasOwnProperty(ledName)) {
-                multiAssignCount++;
-            }
-        }
-
-        // Log summary
-        DebugLogManager.info("[SUMMARY] Pass 1 Results:");
-        DebugLogManager.info("  - Total Parts: " + partItems.length);
-        DebugLogManager.info("  - Total LEDs: " + ledItems.length);
-        DebugLogManager.info("  - Unassigned LEDs: " + this._processResults.pass1_unassigned.length);
-        DebugLogManager.info("  - Multi-assigned LEDs: " + multiAssignCount);
-
-        return {
-            pass1: {
-                bbox_overlaps: this._processResults.pass1_bbox_overlaps,
-                confirmed: this._processResults.pass1_confirmed,
-                unassigned: this._processResults.pass1_unassigned,
-                multi_assigned: this._processResults.pass1_multi_assigned
-            }
-        };
-
-    } catch (error) {
-        DebugLogManager.error("[DETECT] Error in detectOverlap: " + error.toString());
-        return null;
-    }
-},
-
     /**
-     * Detects overlapping LED items by performing both bounding box and geometry-based filtering.
-     * 境界ボックスと形状ベースのフィルタリングの両方を実行して、重なりのある LED アイテムを検出する。
-     *
-     * @param {PathItem|CompoundPathItem} partItem - The target part item. / 対象のパーツアイテム。
-     * @param {Array} ledItems - The list of all LED items. / すべての LED アイテムのリスト。
-     * @returns {Array} The final list of LEDs that are confirmed to overlap. / 重なりが確認された LED の最終リスト。
+     * Main detection function with spatial verification
      */
-/*
-    detectOverlap: function (partItems, ledItems) {
+    detectOverlap: function(partItems, ledItems) {
         try {
-            DebugLogManager.info("[INFO] Starting full overlap detection process for: " + partItems);
-
-            var candidateLEDs = this.simpleBoundingBoxOverlap(partItems, ledItems);
-            DebugLogManager.info("detectOverlap candidateLEDs: " + candidateLEDs);
-            var confirmedLEDs = this.refineOverlapWithGeometry(candidateLEDs, partItems, ledItems);
-            DebugLogManager.info("detectOverlap confirmedLEDs: " + confirmedLEDs);
+            DebugLogManager.info("[DETECT] Starting overlap detection with caching");
             
-            DebugLogManager.info("[INFO] Total confirmed overlapping LEDs: " + confirmedLEDs.length);
-            return confirmedLEDs;
+            // Reset process results
+            this._processResults = {
+                pass1_bbox_overlaps: {},
+                pass1_confirmed: {},
+                pass1_unassigned: [],
+                pass1_multi_assigned: {},
+                pass2_confirmed: {},
+                pass2_unassigned: [],
+                pass2_multi_assigned: {}
+            };
+
+            // PASS 1
+            DebugLogManager.info("[PASS1] Starting pass 1 processing");
+            
+            // Step 1: Bounding box overlap
+            var bboxResults = this.simpleBoundingBoxOverlap(partItems, ledItems);
+            DebugLogManager.info("[PASS1] Completed bounding box overlap detection for " + partItems);
+            
+            // Log bbox overlap results
+            for (var partName in bboxResults) {
+                if (bboxResults.hasOwnProperty(partName)) {
+                    var overlaps = bboxResults[partName];
+                    if (overlaps && overlaps.length) {
+                        DebugLogManager.info("[BBOX] Part " + partName + " overlaps with " + 
+                            overlaps.length + " LEDs: " + overlaps.join(", "));
+                    }
+                }
+            }
+            
+            // Step 2: Geometry refinement
+            var confirmedResults = this.refineOverlapWithGeometry(bboxResults, partItems, ledItems);
+            DebugLogManager.info("[PASS1] Completed geometry refinement");
+            
+            // Count multi-assigned LEDs
+            var multiAssignCount = 0;
+            for (var ledName in this._processResults.pass1_multi_assigned) {
+                if (this._processResults.pass1_multi_assigned.hasOwnProperty(ledName)) {
+                    multiAssignCount++;
+                }
+            }
+
+            // Log summary
+            DebugLogManager.info("[SUMMARY] Pass 1 Results:");
+            DebugLogManager.info("  - Total Parts: " + partItems.length);
+            DebugLogManager.info("  - Total LEDs: " + ledItems.length);
+            DebugLogManager.info("  - Unassigned LEDs: " + this._processResults.pass1_unassigned.length);
+            DebugLogManager.info("  - Multi-assigned LEDs: " + multiAssignCount);
+
+            // Update LogManager with final results
+            if (LogManager && LogManager._data && LogManager._data.shapes) {
+                DebugLogManager.info("[DETECT] Updating LogManager with final results");
+                
+                for (var i = 0; i < LogManager._data.shapes.length; i++) {
+                    var shape = LogManager._data.shapes[i];
+                    var shapeName = shape.name;
+                    
+                    if (this._processResults.pass1_confirmed[shapeName]) {
+                        // Update LED information
+                        var confirmedData = this._processResults.pass1_confirmed[shapeName];
+                        shape.ledCount = confirmedData.ledCount;
+                        shape.ledList = confirmedData.ledList;
+                        DebugLogManager.info("[UPDATE] Shape " + shapeName + 
+                            " final data - Count: " + shape.ledCount + 
+                            ", List: " + shape.ledList.join(", "));
+                    } else {
+                        // Clear LED information if no confirmed results
+                        shape.ledCount = 0;
+                        shape.ledList = [];
+                        DebugLogManager.info("[UPDATE] Shape " + shapeName + " has no confirmed LEDs");
+                    }
+                }
+            }
+
+            return {
+                pass1: {
+                    bbox_overlaps: this._processResults.pass1_bbox_overlaps,
+                    confirmed: this._processResults.pass1_confirmed,
+                    unassigned: this._processResults.pass1_unassigned,
+                    multi_assigned: this._processResults.pass1_multi_assigned
+                }
+            };
 
         } catch (error) {
-            DebugLogManager.error("[ERROR] Failed in detectOverlap: " + error);
-            return [];
+            DebugLogManager.error("[DETECT] Error in detectOverlap: " + error.toString());
+            return null;
         }
     },
-/*
+
     /**
      * Checks if a point is inside a polygon.
      */
@@ -833,10 +1277,151 @@ detectOverlap: function(partItems, ledItems) {
         }
 
         return inside;
+    },
+    
+    /**
+     * Safely converts an object to string for logging
+     */
+    safeStringify: function(obj) {
+        try {
+            var str = "{";
+            for (var prop in obj) {
+                if (obj.hasOwnProperty(prop)) {
+                    if (str.length > 1) str += ", ";
+                    str += prop + ": " + this.stringifyValue(obj[prop]);
+                }
+            }
+            return str + "}";
+        } catch(e) {
+            return "[Object]";
+        }
+    },
+
+    /**
+     * Helper function to stringify individual values
+     */
+    stringifyValue: function(value) {
+        if (value === null) return "null";
+        if (value === undefined) return "undefined";
+        if (value && value.constructor === Array) {  // ExtendScript-compatible array check
+            return "[" + value.join(", ") + "]";
+        }
+        if (typeof value === "object") {
+            return this.safeStringify(value);
+        }
+        return String(value);
     }
 
 };
 
+// These work with both original paths and validated paths
+OverlapDetectionManager.detectPathOverlaps = function(pathItems, ledItems) {
+    try {
+        DebugLogManager.info("[DETECT] Starting path overlap detection");
+        var results = {};  // ExtendScript-compatible object initialization
+        
+        // Process each path
+        for (var i = 0; i < pathItems.length; i++) {
+            var path = pathItems[i];
+            var pathName = path.name || ("Path_" + (i + 1));
+            results[pathName] = [];  // ExtendScript-compatible array initialization
+            
+            var pathBBox = this.getBoundingBox(path);
+            if (!pathBBox) {
+                DebugLogManager.error("[BBOX] Invalid bounding box for path: " + pathName);
+                continue;
+            }
+            
+            // Check against each LED
+            for (var j = 0; j < ledItems.length; j++) {
+                var led = ledItems[j];
+                var ledBBox = this.getBoundingBox(led);
+                
+                if (!ledBBox) {
+                    DebugLogManager.error("[BBOX] Invalid bounding box for LED: " + led.name);
+                    continue;
+                }
+                
+                if (this.isBoundingBoxOverlapping(pathBBox, ledBBox)) {
+                    // Push to array using ExtendScript-compatible method
+                    results[pathName].push(led.name);
+                }
+            }
+        }
+        
+        return results;
+    } catch (error) {
+        DebugLogManager.error("[DETECT] Error in detectPathOverlaps: " + error.toString());
+        return {};
+    }
+};
+
+// Step 3: Add Validation Methods
+OverlapDetectionManager._validateBoundingBox = function(bbox) {
+    try {
+        if (!bbox) return false;
+        if (typeof bbox.x !== "number" || typeof bbox.y !== "number" || 
+            typeof bbox.width !== "number" || typeof bbox.height !== "number") {
+            return false;
+        }
+        if (isNaN(bbox.x) || isNaN(bbox.y) || isNaN(bbox.width) || isNaN(bbox.height)) {
+            return false;
+        }
+        return true;
+    } catch (error) {
+        DebugLogManager.error("[VALIDATE] BBox validation error: " + error.toString());
+        return false;
+    }
+};
+
+// Step 4: Add Migration Helper
+OverlapDetectionManager.detectOverlapsWithValidation = function(pathItems, ledItems) {
+    try {
+        DebugLogManager.info("[DETECT] Starting validated overlap detection");
+        var results = {};
+        var validationStats = {
+            totalPaths: pathItems.length,
+            validPaths: 0,
+            totalLeds: ledItems.length,
+            validLeds: 0
+        };
+        
+        // Validate paths first
+        var validPaths = [];  // ExtendScript-compatible array initialization
+        for (var i = 0; i < pathItems.length; i++) {
+            var path = pathItems[i];
+            var bbox = this.getBoundingBox(path);
+            if (this._validateBoundingBox(bbox)) {
+                validPaths.push(path);
+                validationStats.validPaths++;
+            }
+        }
+        
+        // Validate LEDs
+        var validLeds = [];  // ExtendScript-compatible array initialization
+        for (var j = 0; j < ledItems.length; j++) {
+            var led = ledItems[j];
+            var ledBbox = this.getBoundingBox(led);
+            if (this._validateBoundingBox(ledBbox)) {
+                validLeds.push(led);
+                validationStats.validLeds++;
+            }
+        }
+        
+        // Log validation results
+        DebugLogManager.info("[VALIDATE] Paths - Valid: " + validationStats.validPaths + 
+                            "/" + validationStats.totalPaths);
+        DebugLogManager.info("[VALIDATE] LEDs - Valid: " + validationStats.validLeds + 
+                            "/" + validationStats.totalLeds);
+        
+        // Use existing detection with validated items
+        return this.detectPathOverlaps(validPaths, validLeds);
+        
+    } catch (error) {
+        DebugLogManager.error("[DETECT] Error in validated detection: " + error.toString());
+        return {};
+    }
+};
 
 /**
  * ItemIdentificationManager: Identifies Parts and LEDs in given layers.
@@ -845,6 +1430,9 @@ detectOverlap: function(partItems, ledItems) {
 var ItemIdentificationManager = {
     
     /**
+     * 
+     * SOON TO BE DEPRECATED USE NEW METHOD　extractValidatedPaths instead.
+     * 
      * Recursively extracts all paths from an item in a flat list
      * @param {Object} item - The item to extract paths from
      * @returns {Array} Array of extracted PathItems and CompoundPathItems
@@ -886,8 +1474,124 @@ var ItemIdentificationManager = {
             return [];
         }
     },
+
+    /**
+     * Validates a path item for basic integrity
+     * パスアイテムの基本的な整合性を検証する
+     * 
+     * @private
+     * @param {PathItem|CompoundPathItem} path - Path to validate / 検証するパス
+     * @returns {boolean} Whether the path is valid / パスが有効かどうか
+     */
+    _validatePath: function(path) {
+        try {
+            // Check for null or undefined
+            if (!path) return false;
+
+            // Check for valid bounds
+            if (!path.geometricBounds || path.geometricBounds.length !== 4) {
+                DebugLogManager.warn("Invalid bounds for path:", path.name);
+                return false;
+            }
+
+            // For PathItems, check path points
+            if (path.typename === "PathItem" && (!path.pathPoints || path.pathPoints.length < 2)) {
+                DebugLogManager.warn("PathItem has insufficient points:", path.name);
+                return false;
+            }
+
+            // For CompoundPaths, check contained paths
+            if (path.typename === "CompoundPathItem" && (!path.pathItems || path.pathItems.length === 0)) {
+                DebugLogManager.warn("CompoundPathItem has no paths:", path.name);
+                return false;
+            }
+
+            return true;
+        } catch(e) {
+            DebugLogManager.error("Error validating path:", e.toString());
+            return false;
+        }
+    },
+
+
+    // Add new method with validation
+    extractValidatedPaths: function(item) {
+        try {
+            DebugLogManager.info("Starting validated path extraction for item type:", item.typename);
+            var collectedPaths = [];
+            var stack = [item];
+            
+            while (stack.length > 0) {
+                var currentItem = stack.pop();
+                
+                if (!currentItem) {
+                    continue;
+                }
+                
+                if (currentItem.typename === "PathItem" || 
+                    currentItem.typename === "CompoundPathItem") {
+                    if (this._validatePath(currentItem)) {
+                        collectedPaths.push(currentItem);
+                    } else {
+                        DebugLogManager.warn("Skipping invalid path:", currentItem.name);
+                    }
+                } else if (currentItem.typename === "GroupItem" && currentItem.pageItems) {
+                    for (var i = 0; i < currentItem.pageItems.length; i++) {
+                        stack.push(currentItem.pageItems[i]);
+                    }
+                }
+            }
+            
+            DebugLogManager.info("Validated path extraction complete. Found", collectedPaths.length, "valid paths");
+            return collectedPaths;
+            
+        } catch(e) {
+            DebugLogManager.error("Error in extractValidatedPaths:", e.toString());
+            return [];
+        }
+    },
+
+    /**
+     * Identifies and sorts paths from a layer
+     * レイヤーからパスを識別してソートする
+     * 
+     * @param {Layer} sourceLayer - The layer containing paths / パスを含むレイヤー
+     * @returns {Array} Sorted array of valid paths / ソートされた有効なパスの配列
+     */
+    identifyAndSortPaths: function(sourceLayer) {
+        try {
+            if (!sourceLayer) {
+                throw new Error("Invalid source layer");
+            }
+
+            DebugLogManager.info("Identifying paths in layer:", sourceLayer.name);
+            
+            // Extract all paths from the layer's contents
+            var collectedPaths = [];
+            for (var i = 0; i < sourceLayer.pageItems.length; i++) {
+                var extractedPaths = this.extractPaths(sourceLayer.pageItems[i]);
+                collectedPaths = collectedPaths.concat(extractedPaths);
+            }
+
+            DebugLogManager.info("Found", collectedPaths.length, "paths before sorting");
+            
+            // Sort the collected paths using SortingManager
+            var sortedPaths = SortingManager.sortPathsByGrid(collectedPaths);
+            
+            DebugLogManager.info("Identified and sorted", sortedPaths.length, "paths");
+            return sortedPaths;
+            
+        } catch(e) {
+            DebugLogManager.error("Failed to identify paths:", e.toString());
+            return [];
+        }
+    },
+
     
     /**
+     * 
+     * SOON TO BE DEPRECATED use identifyAndSortPaths instead
+     * 
      * Identifies and sorts PartItems from a layer using `sortByPosition`.
      * @param {Layer} partLayer - The layer containing parts
      * @returns {Array} The sorted PartItems
@@ -923,10 +1627,50 @@ var ItemIdentificationManager = {
         }
     },
 
+
     /**
-     * Identifies and sorts LED GroupItems from a layer.
-     * @param {Layer} ledLayer - The layer containing LED items
-     * @returns {Array} The sorted LED items
+     * New method using validated paths
+     * 検証済みパスを使用する新しいメソッド
+     * 
+     * @param {Layer} sourceLayer - Source layer containing paths / パスを含むソースレイヤー
+     * @returns {Array} Array of validated and sorted paths / 検証・ソート済みパスの配列
+     */
+    identifyAndSortPaths: function(sourceLayer) {
+        try {
+            if (!sourceLayer) {
+                throw new Error("Invalid source layer");
+            }
+
+            DebugLogManager.info("Identifying validated paths in layer:", sourceLayer.name);
+            
+            // Extract and validate paths
+            var collectedPaths = [];
+            for (var i = 0; i < sourceLayer.pageItems.length; i++) {
+                var extractedPaths = this.extractValidatedPaths(sourceLayer.pageItems[i]);
+                for (var j = 0; j < extractedPaths.length; j++) {
+                    collectedPaths.push(extractedPaths[j]);
+                }
+            }
+
+            DebugLogManager.info("Found", collectedPaths.length, "valid paths before sorting");
+            
+            // Sort the validated paths
+            var sortedPaths = SortingManager.sortPathsByGrid(collectedPaths);
+            
+            DebugLogManager.info("Identified and sorted", sortedPaths.length, "validated paths");
+            return sortedPaths;
+            
+        } catch(e) {
+            DebugLogManager.error("Failed to identify validated paths:", e.toString());
+            return [];
+        }
+    },
+
+    /**
+     * 
+     * SOON TO BE DEPRECATED. USE identifyValidatedLedsAndSort instead
+     * 
+     * Original LED identification method - maintains exact original behavior
      */
     identifyLedsAndSort: function(ledLayer) {
         var leds = [];
@@ -937,7 +1681,7 @@ var ItemIdentificationManager = {
 
             DebugLogManager.info("Identifying LED GroupItems in layer:", ledLayer.name);
             for (var i = 0; i < ledLayer.groupItems.length; i++) {
-                leds.push(ledLayer.groupItems[i]);
+                leds.push(ledLayer.groupItems[i]);  // Original behavior - no validation
             }
 
             leds = SortingManager.sortLEDsByGrid(leds);
@@ -947,7 +1691,79 @@ var ItemIdentificationManager = {
             DebugLogManager.error("Failed to identify LEDs:", e.toString());
         }
         return leds;
+    },
+    
+
+    
+    /**
+     * New validated LED identification method
+     * 検証付きLED識別メソッド
+     */
+    identifyValidatedLedsAndSort: function(ledLayer) {
+        var leds = [];
+        var invalidCount = 0;
+        try {
+            if (!ledLayer) {
+                throw new Error("Invalid LED layer");
+            }
+
+            DebugLogManager.info("Identifying validated LED GroupItems in layer:", ledLayer.name);
+            
+            for (var i = 0; i < ledLayer.groupItems.length; i++) {
+                var led = ledLayer.groupItems[i];
+                if (this._validateLED(led)) {
+                    leds.push(led);
+                } else {
+                    invalidCount++;
+                    DebugLogManager.warn("Invalid LED found:", led.name);
+                }
+            }
+
+            leds = SortingManager.sortLEDsByGrid(leds);
+            DebugLogManager.info("Found and sorted LEDs. Valid:", leds.length, 
+                                "Invalid:", invalidCount);
+            
+        } catch(e) {
+            DebugLogManager.error("Failed to identify validated LEDs:", e.toString());
+        }
+        return leds;
+    },
+
+
+
+    /**
+     * Validates an LED GroupItem
+     * LED GroupItemを検証する
+     * 
+     * @private
+     * @param {GroupItem} led - LED item to validate / 検証するLEDアイテム
+     * @returns {boolean} Whether the LED item is valid / LEDアイテムが有効かどうか
+     */
+    _validateLED: function(led) {
+        try {
+            if (!led || led.typename !== "GroupItem") {
+                return false;
+            }
+
+            // Check for valid bounds
+            if (!led.geometricBounds || led.geometricBounds.length !== 4) {
+                DebugLogManager.warn("Invalid bounds for LED:", led.name);
+                return false;
+            }
+
+            // Check for contained items
+            if (!led.pageItems || led.pageItems.length === 0) {
+                DebugLogManager.warn("LED GroupItem has no contents:", led.name);
+                return false;
+            }
+
+            return true;
+        } catch(e) {
+            DebugLogManager.error("Error validating LED:", e.toString());
+            return false;
+        }
     }
+
 };
 
 // Document Manager
@@ -1026,8 +1842,11 @@ var DocumentManager = {
     }
 };
 
-
-// Layer Manager
+/**
+ * Layer Management System for Path-to-Shape Transformation
+ * パスから図形への変換のためのレイヤー管理システム
+ * @namespace
+ */
 var LayerManager = {
     _mngName: "[LAYERMANAGER]",
     _targetLayer: null, // This is initialized in main 
@@ -1148,7 +1967,7 @@ var LayerManager = {
             DebugLogManager.info("IdentificationManager.identifyPartsAndSort: " + sourceLayer.name + " parts: " + parts);
 
             var movedParts = [];
-            LogManager._data.parts = [];
+            LogManager._data.shapes = []; // Should initialize shapes, not parts
 
             // ✅ Parts are already sorted correctly, reverse the iteration order
             for (var i = parts.length - 1; i >= 0; i--) {
@@ -1162,12 +1981,12 @@ var LayerManager = {
                 newPart.name = "Part_" + partNumber; // ✅ Assign correct name
 
                 // ✅ Store reference for later use
-                LogManager._data.parts.push(newPart);
+                LogManager._data.shapes.push(newPart); // The LogManager._data.shapes should be used not the LogManager._data.parts
             }
  
             // Verify ordering after moving
-            DebugLogManager.info("Verifying part ordering after move to temp layer...");
-            OverlapDetectionManager._verifyTempLayerMatch(parts, "Parts", tempLayer);
+            //DebugLogManager.info("Verifying part ordering after move to temp layer...");
+            //OverlapDetectionManager._verifyTempLayerMatch(parts, "Parts", tempLayer);
 
 
             return movedParts;
@@ -1175,8 +1994,6 @@ var LayerManager = {
             DebugLogManager.error("Error in moveSortedParts: movedParts " + movedParts + e);
             return [];
         }
-
-        return movedParts;
     },
 
 
@@ -1191,7 +2008,7 @@ var LayerManager = {
 
             // ✅ Iterate in reverse order to preserve stacking order in tempLayer
             for (var i = leds.length - 1; i >= 0; i--) {
-                var newLed = leds[i].duplicate(tempLayer);
+                var newLed = leds[i].duplicate(tempLayer, ElementPlacement.PLACEATBEGINNING);
                 movedLeds.push(newLed);
 
                 var num = leds.length - i; // ✅ Ensure numbering starts from 1
@@ -1222,8 +2039,6 @@ var LayerManager = {
             DebugLogManager.error("Error in moveSortedParts: movedLeds " + movedLeds + e);
             return [];
         }
-
-        return movedLeds;
     },
 
 
@@ -1266,11 +2081,64 @@ var LayerManager = {
             DebugLogManager.error("[ERROR] Failed to move and sort items:", error);
             return [];
         }
+    },
+
+    /**
+     * Transforms sorted paths into enhanced shapes in temporary layer
+     * ソート済みパスを一時レイヤー内の拡張図形に変換する
+     * 
+     * @param {Layer} sourceLayer - Source layer containing paths / パスを含むソースレイヤー
+     * @param {Layer} tempLayer - Temporary processing layer / 一時処理レイヤー
+     * @returns {Array} Array of enhanced shape objects / 拡張図形オブジェクトの配列
+     */
+    moveSortedPathsToShapes: function(sourceLayer, tempLayer) {
+        try {
+            // Collect and sort paths / パスの収集とソート
+            var collectedPaths = [];
+            var sortedPaths = [];
+            
+            // Extract paths from source layer / ソースレイヤーからパスを抽出
+            for (var i = 0; i < sourceLayer.pageItems.length; i++) {
+                var extractedPaths = ItemIdentificationManager.extractPaths(sourceLayer.pageItems[i]);
+                collectedPaths = collectedPaths.concat(extractedPaths);
+            }
+            
+            // Sort paths by position / パスを位置でソート
+            sortedPaths = SortingManager.sortPathsByGrid(collectedPaths);
+            
+            // Initialize shape arrays / 図形配列を初期化
+            var sortedTempShapes = [];
+            LogManager._data.sortedTempShape_refs = [];  // New shape references / 新しい図形参照
+            LogManager._data.shapes = [];                // Backward compatibility / 後方互換性
+
+            // Process paths in reverse for correct stacking
+            // 正しい重ね順のため逆順で処理
+            for (var i = sortedPaths.length - 1; i >= 0; i--) {
+                // Create temporary path / 一時パスを生成
+                var tempPath = sortedPaths[i].duplicate(tempLayer, ElementPlacement.PLACEATBEGINNING);
+                tempPath.name = "Shape_" + ("00000" + (sortedPaths.length - i)).slice(-5);
+                
+                // Transform to enhanced shape / 拡張図形に変換
+                var sortedTempShape = PathManager.createShapeFromPath(tempPath);
+                
+                // Store shape references / 図形参照を保存
+                sortedTempShapes.push(sortedTempShape);
+                LogManager._data.sortedTempShape_refs.push(sortedTempShape);
+                LogManager._data.shapes.push(sortedTempShape);
+            }
+
+            return sortedTempShapes;
+        } catch (e) {
+            DebugLogManager.error("Error in path-to-shape transformation / パスから図形への変換エラー:", e.toString());
+            return [];
+        }
     }
-
 };
-
-// Path Manager with extended measurement capabilities
+/**
+ * Enhanced Path Management System for Shape Creation and Measurement
+ * 図形生成と測定のための拡張パス管理システム
+ * @namespace
+ */
 var PathManager = {
     // Conversion constants
     POINTS_TO_MM: 0.352778,
@@ -1295,9 +2163,11 @@ var PathManager = {
     },
     
     /**
-     * Gets path width in various units
-     * @param {PathItem|CompoundPathItem} item - The item to measure
-     * @returns {Object} Width in different units
+     * Gets the width of a path in its raw form
+     * パスの素の幅を取得する
+     * 
+     * @param {PathItem|CompoundPathItem} pathItem - The path to measure / 測定対象のパス
+     * @returns {number} Raw width in points / ポイント単位での素の幅
      */
     getPathWidth: function(item) {
         try {
@@ -1486,8 +2356,76 @@ var PathManager = {
             DebugLogManager.error("Error in getAssociatedLEDCount:", e.toString());
         }
         return count;
-    }
+    },
 
+    /**
+     * Creates an enhanced shape object from a path with additional properties
+     * パスから追加プロパティを持つ拡張図形オブジェクトを生成する
+     * 
+     * @param {PathItem|CompoundPathItem} pathItem - Source path / ソースパス
+     * @returns {Object|null} Enhanced shape object or null if creation fails
+     *                        拡張図形オブジェクト（生成失敗時はnull）
+     * @property {PathItem} path - Original path reference / 元のパスの参照
+     * @property {string} name - Shape name / 図形名
+     * @property {Object} width - Width in multiple units / 複数単位での幅
+     * @property {Object} height - Height in multiple units / 複数単位での高さ
+     * @property {Object} area - Area in multiple units / 複数単位での面積
+     * @property {number} ledCount - Number of associated LEDs / 関連LEDの数
+     * @property {Array} ledList - List of associated LEDs / 関連LEDのリスト
+     */
+    createShapeFromPath: function(pathItem) {
+        if (!pathItem) return null;
+        
+        try {
+            // Create enhanced shape object with original path and measurements
+            return {
+                path: pathItem,
+                name: pathItem.name,
+                width: this.createShapeWidth(pathItem),
+                height: this.createShapeHeight(pathItem),
+                area: this.createShapeArea(pathItem),
+                ledCount: 0,
+                ledList: []
+            };
+        } catch (e) {
+            DebugLogManager.error("Error creating shape from path:", e.toString());
+            return null;
+        }
+    },
+
+    /**
+     * Creates a multi-unit width measurement object
+     * 複数単位での幅測定オブジェクトを生成する
+     * 
+     * @param {PathItem|CompoundPathItem} pathItem - Path to measure / 測定対象のパス
+     * @returns {Object} Width in points, mm, and cm / ポイント、ミリ、センチでの幅
+     */
+    createShapeWidth: function(pathItem) {
+        var width = this.getPathWidth(pathItem);
+        return {
+            pt: width,
+            mm: this.pointsToMM(width),
+            cm: this.pointsToCM(width)
+        };
+    },
+
+    createShapeHeight: function(pathItem) {
+        var height = this.getPathHeight(pathItem);
+        return {
+            pt: height,
+            mm: this.pointsToMM(height),
+            cm: this.pointsToCM(height)
+        };
+    },
+
+    createShapeArea: function(pathItem) {
+        var area = this.getPathArea(pathItem);
+        return {
+            pt: area,
+            mm: this.pointsToMM(area),
+            cm: this.pointsToCM(area)
+        };
+    }
      
 };
 
@@ -1565,14 +2503,234 @@ var LEDManager = {
     }
 };
 
+/**
+ * Centralized measurement calculations and conversions
+ * 集中化された測定計算と単位変換
+ */
+var MeasurementManager = {
+    // Constants
+    POINTS_TO_MM: 0.352778,
+    POINTS_TO_CM: 0.0352778,
 
-// Complete Log Manager Implementation
+
+    /**
+     * Unit conversion utilities for ExtendScript
+     * Provides comprehensive conversion between points, millimeters, and centimeters
+     * in both linear and square measurements
+     */
+
+
+    /**
+     * Converts points to millimeters with input validation for ExtendScript
+     * @param {Number|String} points - The number of points to convert
+     * @returns {Number} The equivalent length in millimeters
+     * @throws {Error} If input is not a valid number
+     */
+    pointsToMM: function (points) {
+        // Check if input exists
+        if (points == undefined) {
+            throw new Error('Input cannot be empty');
+        }
+        
+        // Get the input type using ExtendScript's typeof operator
+        var inputType = typeof points;
+        
+        // Initialize our numeric value
+        var pointsNum;
+        
+        // Handle different input types
+        if (inputType === 'number') {
+            pointsNum = points;
+        } else if (inputType === 'string') {
+            // Remove any whitespace and try to convert to number
+            pointsNum = parseFloat(points.toString().replace(/\s/g, ''));
+        } else {
+            throw new Error('Input must be a number or numeric string');
+        }
+        
+        // Check if conversion resulted in a valid number
+        if (isNaN(pointsNum)) {
+            throw new Error('Input must be a valid number');
+        }
+        
+        // Check if input is finite (avoiding Number.isFinite)
+        if (pointsNum == Infinity || pointsNum == -Infinity) {
+            throw new Error('Input must be a finite number');
+        }
+        
+        // Convert points to millimeters
+        // 1 point = 0.3527777778 mm (1/72 inch × 25.4 mm/inch)
+        return pointsNum * this.POINTS_TO_MM;
+    },
+
+    /**
+     * Converts points to centimeters with input validation for ExtendScript
+     * Uses pointsToMillimeters function for consistent conversion
+     * @param {Number|String} points - The number of points to convert
+     * @returns {Number} The equivalent length in centimeters
+     * @throws {Error} If input is not a valid number
+     */
+    pointsToCM: function (points) {
+        // Use our existing pointsToMillimeters function for validation and initial conversion
+        var millimeters = pointsToMM(points);
+        
+        // Convert millimeters to centimeters (1 cm = 10 mm)
+        return millimeters / 10;
+    },
+
+    /**
+     * Converts square points to square millimeters with input validation
+     * Uses pointsToMillimeters function as a base for conversion
+     * @param {Number|String} squarePoints - The number of square points to convert
+     * @returns {Number} The equivalent area in square millimeters
+     * @throws {Error} If input is not a valid number
+     */
+    squarePointsToSQMM: function (squarePoints) {
+    
+        // Check if input exists
+        if (squarePoints == undefined) {
+            throw new Error('Input cannot be empty');
+        }
+        
+        // Convert input to number if it's a string
+        var sqPoints = parseFloat(squarePoints);
+        
+        // Validate the converted number
+        if (isNaN(sqPoints)) {
+            throw new Error('Input must be a valid number');
+        }
+        
+        // Check for negative values
+        if (sqPoints < 0) {
+            throw new Error('Area cannot be negative');
+        }
+        
+        // Check if input is finite
+        if (sqPoints == Infinity || sqPoints == -Infinity) {
+            throw new Error('Input must be a finite number');
+        }
+        
+        // Square the result to get square millimeters
+        return sqPoints * this.POINTS_TO_MM * this.POINTS_TO_MM;
+    },
+
+
+
+    /**
+     * Converts square points directly to square centimeters
+     * This function provides a direct conversion without going through square millimeters
+     * @param {Number|String} squarePoints - The number of square points to convert
+     * @returns {Number} The equivalent area in square centimeters
+     * @throws {Error} If input is not a valid number or is negative
+     */
+    squarePointsToSQCM: function (squarePoints) {
+        // Check if input exists
+        if (squarePoints == undefined) {
+            throw new Error('Input cannot be empty');
+        }
+        
+        // Convert input to number if it's a string
+        var sqPoints = parseFloat(squarePoints);
+        
+        // Validate the converted number
+        if (isNaN(sqPoints)) {
+            throw new Error('Input must be a valid number');
+        }
+        
+        // Check for negative values
+        if (sqPoints < 0) {
+            throw new Error('Area cannot be negative');
+        }
+        
+        // Check if input is finite
+        if (sqPoints == Infinity || sqPoints == -Infinity) {
+            throw new Error('Input must be a finite number');
+        }
+        
+        // Convert square points to square centimeters
+        // We calculate this using the square of the points-to-millimeters conversion factor,
+        // then divide by 100 to convert from sq mm to sq cm
+        // 1 point = 0.3527777778 mm = 0.03527777778 cm
+        // Therefore, 1 sq point = (0.03527777778)² sq cm
+        return sqPoints * this.POINTS_TO_CM * this.POINTS_TO_CM;
+    },
+
+    /**
+     * Gets complete measurements for a path item
+     * パスアイテムの完全な測定値を取得
+     */
+    getPathMeasurements: function(pathItem) {
+        try {
+            var bounds = pathItem.geometricBounds;
+            
+            var width = Math.abs(bounds[2] - bounds[0]);
+            var height = Math.abs(bounds[1] - bounds[3]);
+            var area = 0;
+
+            // Area calculation based on path type
+            if (pathItem.typename === "PathItem") {
+                area = Math.abs(pathItem.area);
+            } else if (pathItem.typename === "CompoundPathItem") {
+                area = this.getCompoundPathArea(pathItem);
+            }
+
+            return {
+                width: {
+                    pt: width,
+                    mm: this.pointsToMM(width),
+                    cm: this.pointsToCM(width)
+                },
+                height: {
+                    pt: height,
+                    mm: this.pointsToMM(height),
+                    cm: this.pointsToCM(height)
+                },
+                area: {
+                    pt: area,
+                    mm: this.pointsToMM(area),
+                    cm: this.pointsToCM(area)
+                }
+            };
+        } catch(e) {
+            DebugLogManager.error("Error getting path measurements:", e.toString());
+            return null;
+        }
+    },
+
+    /**
+     * Gets area for compound path
+     * 複合パスの面積を取得
+     */
+    getCompoundPathArea: function(compoundPath) {
+        try {
+            var total = 0;
+            for (var i = 0; i < compoundPath.pathItems.length; i++) {
+                total += Math.abs(compoundPath.pathItems[i].area);
+            }
+            return total;
+        } catch(e) {
+            DebugLogManager.error("Error calculating compound path area:", e.toString());
+            return 0;
+        }
+    }
+};
+
+// Initialize LogManager data structure
+// LogManagerのデータ構造を初期化
 var LogManager = {
     _mngName: "[LOGMANAGER]",
+
+    // Soon to be deprecated data structures
     _data: {},
     _layerData: [],
+
+    //New data structures
+    _sortedTempShape_refs: [],  // New shape references / 新しい図形参照
+    _shapes: [],                // For backward compatibility / 後方互換性用
+    _results: {},               // Processing results / 処理結果
+    _validationStats: {},      // Track validation statistics
     
-        /**
+    /**
      * Initializes the log manager
      */
     init: function() {
@@ -1583,6 +2741,8 @@ var LogManager = {
             // Initialize data structures
             this._data = {};
             this._layerData = [];
+            this._data.shapes = [];
+            this._data.results = {};
             
             // Initialize document info if available
             if (app.documents.length > 0) {
@@ -1724,9 +2884,9 @@ var LogManager = {
             
 
                 // Get measurements
-                var width = PathManager.getPathWidth(shape);
-                var height = PathManager.getPathHeight(shape);
-                var area = PathManager.getPathArea(shape);
+                var width = shape.width;  //PathManager.getPathWidth(shape);
+                var height = shape.height; //PathManager.getPathHeight(shape);
+                var area = shape.area; //PathManager.getPathArea(shape);
             
                 // Get LED count for this shape
                 var overlappingLEDs = OverlapDetectionManager.detectOverlap(shapes, leds);
@@ -1736,19 +2896,19 @@ var LogManager = {
                 this._data[LOG_KEYS.SHAPE_NAME_ROOT + index] = shape.name || ("Shape_" + index);
             
                 // Log heights
-                this._data[LOG_KEYS.SHAPE_HEIGHT_PT + index] = height.pt.toFixed(2);
-                this._data[LOG_KEYS.SHAPE_HEIGHT_MM + index] = height.mm.toFixed(2);
-                this._data[LOG_KEYS.SHAPE_HEIGHT_CM + index] = height.cm.toFixed(2);
+                this._data[LOG_KEYS.SHAPE_HEIGHT_PT + index] = height.toFixed(2);
+                this._data[LOG_KEYS.SHAPE_HEIGHT_MM + index] = pointsToMM(height).toFixed(2);
+                this._data[LOG_KEYS.SHAPE_HEIGHT_CM + index] = pointsToCM(height).toFixed(2);
             
                 // Log widths
-                this._data[LOG_KEYS.SHAPE_WIDTH_PT + index] = width.pt.toFixed(2);
-                this._data[LOG_KEYS.SHAPE_WIDTH_MM + index] = width.mm.toFixed(2);
-                this._data[LOG_KEYS.SHAPE_WIDTH_CM + index] = width.cm.toFixed(2);
+                this._data[LOG_KEYS.SHAPE_WIDTH_PT + index] = width.toFixed(2);
+                this._data[LOG_KEYS.SHAPE_WIDTH_MM + index] = pointsToMM(width).toFixed(2);
+                this._data[LOG_KEYS.SHAPE_WIDTH_CM + index] = pointsToCM(width).toFixed(2);
             
                 // Log areas
-                this._data[LOG_KEYS.SHAPE_AREA_PTSQ + index] = area.pt.toFixed(2);
-                this._data[LOG_KEYS.SHAPE_AREA_MMSQ + index] = area.mm.toFixed(2);
-                this._data[LOG_KEYS.SHAPE_AREA_CMSQ + index] = area.cm.toFixed(2);
+                this._data[LOG_KEYS.SHAPE_AREA_PTSQ + index] = area.toFixed(2);
+                this._data[LOG_KEYS.SHAPE_AREA_MMSQ + index] = squarePointsToSQMM(area).toFixed(2);
+                this._data[LOG_KEYS.SHAPE_AREA_CMSQ + index] = squarePointsToSQCM(area).toFixed(2);
             
                 // Log LED count
                 this._data[LOG_KEYS.SHAPE_LED_COUNT + index] = ledCount;
@@ -1854,8 +3014,26 @@ var LogManager = {
                 output += "\n=== SHAPE MEASUREMENTS ===\n";
                 
                 for (var i = 0; i < this._data.shapes.length; i++) {
-                    var index = ("000" + (i + 1)).slice(-3);  // Pad with leading zeros
-                    var shape = this._data.shapes[i];
+                    var index = ("000" + (i + 1)).slice(-3);
+                    var myShape = this._data.shapes[i]; 
+                    
+                    var shape = {
+                        width: {
+                            pt: myShape.width.toFixed(2),
+                            mm: pointsToMM(myShape.width).toFixed(2),
+                            cm: pointsToCM(myShape.width).toFixed(2)
+                        },
+                        height: {
+                            pt: myShape.height.toFixed(2),
+                            mm: pointsToMM(myShape.height).toFixed(2),
+                            cm: pointsToCM(myShape.height).toFixed(2)
+                        },
+                        area: {
+                            sqpt: myShape.area.toFixed(2),
+                            sqmm: squarePointsToSQMM(myShape.area).toFixed(2),
+                            sqcm: squarePointsToSQCM(myShape.area).toFixed(2)
+                        }
+                    };
                     
                     output += "\n--- Shape " + index + " ---\n";
                     output += LOG_KEYS.SHAPE_NAME_ROOT + index + ": " + shape.name + "\n";
@@ -1875,10 +3053,16 @@ var LogManager = {
                     output += LOG_KEYS.SHAPE_AREA_MMSQ + index + ": " + shape.area.mm.toFixed(2) + "\n";
                     output += LOG_KEYS.SHAPE_AREA_CMSQ + index + ": " + shape.area.cm.toFixed(2) + "\n";
                     
-                    // LED count
+                    // LED count and list
                     output += LOG_KEYS.SHAPE_LED_COUNT + index + ": " + shape.ledCount + "\n";
-                    output += LOG_KEYS.SHAPE_LED_LIST + index + ": " + (shape.ledList ? shape.ledList.join(", ") : "") + "\n";
-              }
+                    
+                    // Check if we have LED list and add it
+                    if (shape.ledList) {
+                        output += LOG_KEYS.SHAPE_LED_LIST + index + ": " + shape.ledList.join(", ") + "\n";
+                    } else {
+                        output += LOG_KEYS.SHAPE_LED_LIST + index + ": \n";
+                    }
+                }
             } else {
                 output += "\n🚨 No shape measurements found. 🚨\n";
             }
@@ -2149,7 +3333,7 @@ var LogManager = {
                 DebugLogManager.info("[INIT] Initializing processing...");
 
                 if (!doc) {
-                    throw new Error("No document provided");
+                    DebugLogManager.error("No document provided");
                 }
 
                 // Find required layers
@@ -2157,10 +3341,10 @@ var LogManager = {
                 var partsLayer = LayerManager.findLayerByChars(doc, layerChars);
                 
                 if (!ledLayer) {
-                    throw new Error("LED layer not found");
+                    DebugLogManager.error("LED layer not found");
                 }
                 if (!partsLayer) {
-                    throw new Error("Parts layer not found");
+                    DebugLogManager.error("Parts layer not found");
                 }
 
                 DebugLogManager.info("[INIT] Found required layers");
@@ -2256,6 +3440,175 @@ var LogManager = {
             
         },
 
+
+    // Add new validated processing methods
+    initializeValidated: function(doc, layerChars) {
+        try {
+            DebugLogManager.info("[INIT] Initializing validated processing...");
+
+            if (!doc) {
+                DebugLogManager.error("No document provided");
+                return null;
+            }
+
+            var ledLayer = LayerManager.findLayerByName(doc, "LED");
+            var pathsLayer = LayerManager.findLayerByChars(doc, layerChars);
+            
+            if (!ledLayer || !pathsLayer) {
+                DebugLogManager.error("Required layers not found");
+                return null;
+            }
+
+            var tempLayer = doc.layers.add();
+            tempLayer.name = "Temp_Union_Layer";
+            
+            // Use enhanced methods for validated processing
+            var collectedPaths = ItemIdentificationManager.extractValidatedPaths(pathsLayer);
+            var sortedValidatedPaths = SortingManager.sortByGridEnhanced(collectedPaths);
+            
+            var shapes = [];
+            for (var i = 0; i < sortedValidatedPaths.length; i++) {
+                var path = sortedValidatedPaths[i];
+                var measurements = MeasurementManager.getPathMeasurements(path);
+                if (measurements) {
+                    var shape = {
+                        path: path,
+                        name: "Shape_" + ("00000" + (i + 1)).slice(-5),
+                        width: measurements.width,
+                        height: measurements.height,
+                        area: measurements.area,
+                        ledCount: 0,
+                        ledList: []
+                    };
+                    shapes.push(shape);
+                }
+            }
+
+            return {
+                tempLayer: tempLayer,
+                ledLayer: ledLayer,
+                pathsLayer: pathsLayer,
+                sortedValidatedShapes: shapes,
+                sortedLEDs: LayerManager.moveSortedLeds(ledLayer, tempLayer)
+            };
+
+        } catch (error) {
+            DebugLogManager.error("[INIT] Validated initialization failed:", error);
+            return null;
+        }
+    },
+
+    executeValidatedProcessing: function(initData) {
+        try {
+            if (!this._validateInitData(initData)) {
+                return {};
+            }
+
+            var shapes = initData.sortedValidatedShapes;
+            var leds = initData.sortedLEDs;
+            var results = {};
+
+            for (var i = 0; i < shapes.length; i++) {
+                var shape = shapes[i];
+                var pathForOverlap = shape.path;
+                
+                var overlaps = OverlapDetectionManager.detectOverlap([pathForOverlap], leds);
+                var ledList = overlaps[pathForOverlap.name] || [];
+
+                // Update shape with LED information
+                shape.ledCount = ledList.length;
+                shape.ledList = ledList;
+
+                // Store results
+                results[shape.name] = {
+                    ledCount: ledList.length,
+                    leds: ledList,
+                    measurements: {
+                        width: shape.width,
+                        height: shape.height,
+                        area: shape.area
+                    }
+                };
+
+                // Log validated shape measurements
+                LogManager.logValidatedShapeMeasurements([shape]);
+            }
+
+            return results;
+        } catch (error) {
+            DebugLogManager.error("[ERROR] Validated processing failed:", error);
+            return {};
+        }
+    },
+
+    // Private helper methods
+    _validateInitData: function(initData) {
+        if (!initData) {
+            DebugLogManager.error("Invalid initialization data");
+            return false;
+        }
+
+        if (!initData.tempLayer) {
+            DebugLogManager.error("Missing temp layer");
+            return false;
+        }
+
+        return true;
+    },
+
+        
+    /**
+     * New function for enhanced shape processing
+     * 拡張図形処理のための新機能
+     * 
+     * @param {Object} initData - Initialization data / 初期化データ
+     * @returns {Object} Results of LED detection / LED検出結果
+     */
+    executeShapeProcessing: function(initData) {
+        try {
+            DebugLogManager.info("[EXECUTE] Running shape processing workflow...");
+
+            if (!initData || !initData.tempLayer || !initData.sortedTempShapes || 
+                !initData.sortedTempLEDs) {
+                DebugLogManager.error("Invalid shape initialization data.");
+                return {};
+            }
+
+            var results = {};
+            var sortedTempShapes = initData.sortedTempShapes;
+            var sortedTempLEDs = initData.sortedTempLEDs;
+
+            // Process each shape
+            for (var i = 0; i < sortedTempShapes.length; i++) {
+                var shape = sortedTempShapes[i];
+                DebugLogManager.info("[PROCESS] Checking overlaps for shape:", shape.name);
+
+                // Use the underlying path for overlap detection
+                var confirmedLEDs = OverlapDetectionManager.detectOverlap(
+                    [shape.path], 
+                    sortedTempLEDs
+                );
+
+                var ledList = confirmedLEDs[shape.path.name] || [];
+                
+                // Store results in both new and old formats for compatibility
+                results[shape.name] = {
+                    ledCount: ledList.length,
+                    leds: ledList
+                };
+
+                // Update the shape object itself
+                shape.ledCount = ledList.length;
+                shape.ledList = ledList;
+            }
+
+            return results;
+        } catch (error) {
+            DebugLogManager.error("[ERROR] Shape processing failed:", error);
+            return {};
+        }
+    },
+
         /**
          * Finalizes processing by removing the temp layer safely.
          * 一時レイヤーを削除して処理を完了する。
@@ -2327,6 +3680,9 @@ if (selectedOption) {
 */
 // Main Process
 function main() {
+
+    var measure = MeasurementManager;
+    var process = ProcessingManager;
     try {
         var funName = "[MAIN] ";
         DebugLogManager.info(funName + "Starting main processing...");
@@ -2334,7 +3690,7 @@ function main() {
         // Get document and verify
         var doc = app.activeDocument;
         if (!doc) {
-            throw new Error("No active document found");
+            DebugLogManager.error("No active document found");
         }
         DebugLogManager.info(funName + "Document found: " + doc.name);
 
@@ -2354,20 +3710,21 @@ function main() {
         DebugLogManager.info(funName + "Target layer chars: " + targetChars);
 
         // Initialize processing and verify each component
-        var initData = ProcessingManager.initialize(doc, targetChars);
+        //var initData = ProcessingManager.initialize(doc, targetChars);
+        var initData = process.initializeValidated(doc, targetChars);
         if (!initData) {
-            throw new Error("ProcessingManager initialization failed");
+            DebugLogManager.error("ProcessingManager initialization failed");
         }
 
         DebugLogManager.info(funName + "Checking initialized layers...");
         if (!initData.partsLayer) {
-            throw new Error("Parts layer not found");
+            DebugLogManager.error("Parts layer not found");
         }
         if (!initData.ledLayer) {
-            throw new Error("LED layer not found");
+            DebugLogManager.error("LED layer not found");
         }
         if (!initData.tempLayer) {
-            throw new Error("Temp layer not found");
+            DebugLogManager.error("Temp layer not found");
         }
 
         // Log target layer info
@@ -2375,31 +3732,46 @@ function main() {
         DebugLogManager.info(funName + "Target layer found: " + initData.partsLayer.name);
 
         // Calculate and verify areas
-        var area = LayerManager.getLayerArea(initData.partsLayer);
-        DebugLogManager.info(funName + "Calculated area: " + area);
+        //var area = LayerManager.getLayerArea(initData.partsLayer);
         
-        LogManager._data[LOG_KEYS.AREA_POINTS] = area.toFixed(10);
-        LogManager._data[LOG_KEYS.AREA_MM] = (area / 2.834645 / 2.834645).toFixed(2);
-        LogManager._data[LOG_KEYS.AREA_CM] = (parseFloat(LogManager._data[LOG_KEYS.AREA_MM]) / 100).toFixed(2);
+        var layerArea = LayerManager.getLayerArea(initData.partsLayer).toFixed(10) // Usually areas are in square points in Illustrator
+        var area = {
+            sqpt: layerArea,
+            sqmm: measure.squarePointsToSQMM(layerArea).toFixed(2),
+            sqcm: measure.squarePointsToSQCM(layerArea).toFixed(2)
+        };
+        
+        DebugLogManager.info(funName + "Calculated area: " + area.sqpt);
+        
+        LogManager._data[LOG_KEYS.AREA_POINTS] = area.sqpt;
+        LogManager._data[LOG_KEYS.AREA_MM] = area.sqmm; // area / 2.834645 / 2.834645).toFixed(2);
+        LogManager._data[LOG_KEYS.AREA_CM] = area.sqcm; // (parseFloat(LogManager._data[LOG_KEYS.AREA_MM]) / 100).toFixed(2);
 
         // Calculate and verify heights
-        var height = LayerManager.getMaxHeight(initData.partsLayer);
+        var maxHeight = LayerManager.getMaxHeight(initData.partsLayer);
         DebugLogManager.info(funName + "Calculated height: " + height);
+
+        var height = {
+            pt: maxHeight.toFixed(2),
+            mm: measure.pointsToMM(maxHeight).toFixed(2),
+            cm: measure.pointsToCM(maxHeight).toFixed(2)
+        };
         
-        LogManager._data[LOG_KEYS.HEIGHT_POINTS] = height;
-        LogManager._data[LOG_KEYS.HEIGHT_MM] = (height / 2.834645).toFixed(2);
-        LogManager._data[LOG_KEYS.HEIGHT_CM] = (parseFloat(LogManager._data[LOG_KEYS.HEIGHT_MM]) / 100).toFixed(2);
+        LogManager._data[LOG_KEYS.HEIGHT_POINTS] = height.pt;  // This is in points
+        LogManager._data[LOG_KEYS.HEIGHT_MM] = height.mm;
+        LogManager._data[LOG_KEYS.HEIGHT_CM] = height.cm;
 
         // Process parts and LEDs
         DebugLogManager.info(funName + "Processing parts and LEDs...");
-        var results = ProcessingManager.executeProcessing(initData);
+//        var results = ProcessingManager.executeProcessing(initData);
+        var results = ProcessingManager.executeShapeProcessing(initData);
         if (!results) {
-            throw new Error("Failed to process parts and LEDs");
+            ProcessingManager.error("Failed to process parts and LEDs");
         }
         LogManager._data.results = results;
 
         // Store shape measurements with verification
-        LogManager._data.shapes = [];
+        //LogManager._data.shapes = [];
         DebugLogManager.info(funName + "Processing shape measurements...");
         DebugLogManager.info(funName + "Number of sorted parts: " + (initData.sortedParts ? initData.sortedParts.length : 0));
 
@@ -2409,9 +3781,9 @@ function main() {
                 var index = i + 1;
                 
                 // Get measurements
-                var width = PathManager.getPathWidth(part);
-                var height = PathManager.getPathHeight(part);
-                var area = PathManager.getPathArea(part);
+                var width = part.width; // Or, PathManager.getPathWidth(part);
+                var height = part.height;  //Or, PathManager.getPathHeight(part);
+                var area = part.area;  // Or, PathManager.getPathArea(part);
                 var ledCount = results[part.name] ? results[part.name].ledCount : 0;
 
                 // Get LED information including the list of LEDs
@@ -2423,7 +3795,7 @@ function main() {
                 var paddedIndex = ("0000" + index).slice(-4);
                 
                 LogManager._data[LOG_KEYS.SHAPE_NAME_ROOT + paddedIndex] = part.name;
-                LogManager._data[LOG_KEYS.SHAPE_WIDTH_PT + paddedIndex] = width.pt.toFixed(2);
+                LogManager._data[LOG_KEYS.SHAPE_WIDTH_PT + paddedIndex] = width.toFixed(2);
                 LogManager._data[LOG_KEYS.SHAPE_WIDTH_MM + paddedIndex] = width.mm.toFixed(2);
                 LogManager._data[LOG_KEYS.SHAPE_WIDTH_CM + paddedIndex] = width.cm.toFixed(2);
                 LogManager._data[LOG_KEYS.SHAPE_HEIGHT_PT + paddedIndex] = height.pt.toFixed(2);
@@ -2453,7 +3825,7 @@ function main() {
         }
 
         // Set export path
-        var exportPath = doc.path + "/" + doc.name.replace(/\.ai$/i, '') + "_output_log.txt";
+        var exportPath = doc.path + "/" + doc.name.replace(/\.ai$/i, '');
         LogManager._data[LOG_KEYS.EXPORT_PATH] = exportPath;
         DebugLogManager.info(funName + "Set export path: " + exportPath);
 
