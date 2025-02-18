@@ -65,6 +65,60 @@ function serialize(obj) {
     return str.slice(0, -2) + "}";
 }
 
+/**
+ * Serializes the confirmed overlaps into a structured list format.
+ * @param {Object} confirmedOverlaps - Object containing part names as keys and LED info as values.
+ * @returns {String} - Serialized string representation of the overlaps.
+ */
+function serializeConfirmedOverlaps(confirmedOverlaps) {
+    try {
+        if (!confirmedOverlaps || typeof confirmedOverlaps !== "object") {
+            DebugLogManager.error("[SERIALIZE] Invalid confirmedOverlaps data.");
+            return "[]"; // Return empty list format
+        }
+
+        var serializedList = "[";
+        var partCount = 0;
+
+        for (var partName in confirmedOverlaps) {
+            if (!confirmedOverlaps.hasOwnProperty(partName)) continue;
+
+            var ledEntries = [];
+            var ledCount = confirmedOverlaps[partName].length; // Count LEDs per part
+
+            for (var i = 0; i < ledCount; i++) {
+                var ledEntry = confirmedOverlaps[partName][i];
+                var ledName = ledEntry.name; // Keep "LED_xxxx" format
+                var confidence = ledEntry.confidence.split("%")[0]; // Remove percentage sign safely
+
+                ledEntries.push("[" + ledName + ", confidence: " + confidence + "]");
+            }
+
+            serializedList += "\n  " + partName + " (LED Count: " + ledCount + "): [" + ledEntries.join(", ") + "],";
+            partCount++;
+        }
+
+        if (partCount === 0) {
+            DebugLogManager.warn("[SERIALIZE] No confirmed overlaps found.");
+            return "[]";
+        }
+
+        serializedList = serializedList.replace(/,$/, ""); // Remove trailing comma
+        serializedList += "\n]";
+
+        DebugLogManager.info("[SERIALIZE] Serialized confirmed overlaps successfully.");
+        DebugLogManager.info("[SERIALIZE] Total Parts Processed: " + partCount);
+        
+        return serializedList;
+
+    } catch (error) {
+        DebugLogManager.error("[SERIALIZE] Error serializing confirmed overlaps: " + error.toString());
+        return "[]";
+    }
+}
+
+
+
 var MeasurementManager = {
     POINTS_TO_MM: 0.352778,
     POINTS_TO_CM: 0.0352778,
@@ -427,6 +481,7 @@ var OverlapDetectionManager = {
         pass2_unassigned: [],
         pass2_multi_assigned: []
     },
+    _cachedLedAssignments: [],
 
      /**
      * Retrieves the bounding box of a given item.
@@ -520,26 +575,185 @@ var OverlapDetectionManager = {
         return candidateLEDs;
     },
 
+    /**
+ * Refines overlap by verifying LED vertices inside parts and reassigning unassigned LEDs from bboxResults.
+ * Uses sortedParts and sortedLEDs for efficient iteration.
+ * 
+ * @param {Array} sortedParts - List of ordered parts (PathItems/CompoundPathItems)
+ * @param {Array} sortedLEDs - List of ordered LEDs (GroupItems)
+ * @param {Object} bboxResults - Original bounding box overlaps mapping parts to LEDs
+ * @returns {Object} - Refined overlap mapping with confirmed and fallback reassigned LEDs
+ */
     refineOverlapWithGeometry: function (parts, leds, candidateLEDs) {
-        try {
-            var funName = this._mngName + "[GEOMETRY] "; // Substitute FUNCTION  with appropriate name of function
-            DebugLogManager.info(funName + "Starting...");
-            try {
-                
-                DebugLogManager.info(funName + " " + 1);
+ try {
+        DebugLogManager.info("[REFINE] Starting refinement of bounding box overlaps...");
 
-                return true;
-            } catch (e) {
-                DebugLogManager.error(funName + " " + e.toString());
-                return false;
+        var confirmedOverlaps = {}; // Stores final refined results
+     var unassignedLEDs = {}; // Tracks unassigned LEDs
+     var bboxResults = candidateLEDs;
+     var sortedParts = parts;
+     var sortedLEDs = leds;
+
+        // **Clear the cached LED count and list before new processing**
+        OverlapDetectionManager._cachedLedCounts = [];
+
+        // **Initialize confirmedOverlaps structure and track all initially assigned LEDs**
+        for (var i = 0; i < parts.length; i++) {
+            var partName = "Part_" + ("00000" + (i + 1)).slice(-5);
+            confirmedOverlaps[partName] = [];
+
+            if (bboxResults.hasOwnProperty(partName)) {
+                for (var j = 0; j < bboxResults[partName].length; j++) {
+                    var ledName = bboxResults[partName][j]; 
+                    unassignedLEDs[ledName] = partName; 
+                }
             }
-
-        } catch (e) {
-            DebugLogManager.error(funName + " encountered exception: " + e.toString());
-        return false;
         }
 
+        // **Loop through each part efficiently**
+        for (var i = 0; i < sortedParts.length; i++) {
+            var part = sortedParts[i];
+            var partName = "Part_" + ("00000" + (i + 1)).slice(-5);
+
+            if (!bboxResults.hasOwnProperty(partName)) continue;
+
+            var partVertices = PathManager.getPathVertices(part);
+
+            // **Loop through LEDs assigned in bboxResults for this part**
+            for (var j = 0; j < bboxResults[partName].length; j++) {
+                var ledName = bboxResults[partName][j]; 
+                var ledIndex = parseInt(ledName.replace("LED_", ""), 10) - 1;
+                
+                if (ledIndex < 0 || ledIndex >= sortedLEDs.length) {
+                    DebugLogManager.warn("[REFINE] Skipping " + ledName + " (Invalid index: " + ledIndex + ")");
+                    continue;
+                }
+
+                var led = sortedLEDs[ledIndex];
+
+                var ledVertices = LEDManager.getLEDVertices(led);
+                var insideCount = 0;
+
+                // **Check if LED vertices are inside the part**
+                for (var v = 0; v < ledVertices.length; v++) {
+                    if (this.isPointInPolygon(ledVertices[v], partVertices)) {
+                        insideCount++;
+                    }
+                }
+
+                var confidence = ledVertices.length > 0 ? (insideCount / ledVertices.length) * 100 : 0;
+
+                if (insideCount > 0) {
+                    confirmedOverlaps[partName].push({
+                        name: ledName, 
+                        confidence: confidence.toFixed(2) + "%",
+                        insideCount: insideCount,
+                        totalVertices: ledVertices.length
+                    });
+
+                    delete unassignedLEDs[ledName]; 
+
+                    DebugLogManager.info("[CONFIRM] " + ledName +
+                        " confirmed inside " + partName +
+                        " with confidence: " + confidence.toFixed(2) + "%");
+                }
+            }
+        }
+/*
+        // **Fallback Assignment: Reassign any unassigned LEDs to their original bboxResults Part**
+        for (var unassignedLED in unassignedLEDs) {
+            if (!unassignedLEDs.hasOwnProperty(unassignedLED)) continue;
+
+            var originalPart = unassignedLEDs[unassignedLED]; 
+            confirmedOverlaps[originalPart].push({
+                name: unassignedLED, 
+                confidence: "Fallback Reassignment"
+            });
+
+            DebugLogManager.warn("[FALLBACK] " + unassignedLED +
+                " reassigned to " + originalPart + " (Fallback from bboxResults)");
+        }
+*/
+        DebugLogManager.info("[REFINE] Refinement completed.");
+
+        // **🚀 NEW: Cache LED Count and List for Later Logging**
+        OverlapDetectionManager.cacheLedCounts(sortedParts, confirmedOverlaps);
+
+        this._processResults.pass1_confirmed = confirmedOverlaps;
+
+        return confirmedOverlaps;
+
+    } catch (error) {
+        DebugLogManager.error("[REFINE] Error in refineOverlapWithGeometry: " + error.toString());
+        return {};
+    }
     },
+
+
+/**
+ * Caches Part_led_count_idx and Part_led_list_idx for later logging.
+ * 
+ * @param {Array} sortedParts - List of ordered parts.
+ * @param {Object} confirmedResults - Mapping of parts to confirmed LEDs.
+ */
+cacheLedCounts: function (sortedParts, confirmedResults) {
+    try {
+        DebugLogManager.info("[CACHE] Caching confirmed LED counts and lists...");
+
+        var cachedLogs = [];
+
+        for (var i = 0; i < sortedParts.length; i++) {
+            var partName = "Part_" + ("00000" + (i + 1)).slice(-5);
+            var shapeIndex = ("000" + (i + 1)).slice(-3); // 3-digit index
+            
+            var ledList = [];
+            var ledCount = 0;
+
+            if (confirmedResults.hasOwnProperty(partName)) {
+                ledCount = confirmedResults[partName].length;
+                for (var j = 0; j < confirmedResults[partName].length; j++) {
+                    ledList.push(confirmedResults[partName][j].name);
+                }
+            }
+
+            var logEntry = "Part_led_count_" + shapeIndex + ": " + ledCount + "\n";
+            logEntry += "Part_led_list_" + shapeIndex + ": " + (ledList.length > 0 ? ledList.join(", ") : "") + "\n";
+            
+            cachedLogs.push(logEntry);
+        }
+
+        // Store cached logs
+        OverlapDetectionManager._cachedLedCounts = cachedLogs;
+        DebugLogManager.info("[CACHE] Cached LED logs successfully.");
+
+    } catch (error) {
+        DebugLogManager.error("[CACHE] Error caching LED counts and lists: " + error.toString());
+    }
+},
+
+/**
+ * Appends cached Part_led_count_idx and Part_led_list_idx to _output_log.txt.
+ */
+appendLedCountsToLog: function () {
+    try {
+        DebugLogManager.info("[LOGGING] Appending cached LED counts and lists to output log...");
+
+        if (OverlapDetectionManager._cachedLedCounts.length === 0) {
+            DebugLogManager.warn("[LOGGING] No cached LED data found.");
+            return;
+        }
+
+        var logContent = OverlapDetectionManager._cachedLedCounts.join("\n");
+
+        // **Use WriteToFile to append to the log file**
+        WriteToFile(logContent);
+
+        DebugLogManager.info("[LOGGING] Successfully appended LED data to log file.");
+
+    } catch (error) {
+        DebugLogManager.error("[LOGGING] Error appending LED counts to output log: " + error.toString());
+    }
+},
 
     /**
      * Refines the overlap by checking actual LED vertices inside the part.
@@ -550,7 +764,7 @@ var OverlapDetectionManager = {
      * @param {Array} myLeds - Array of GroupItems representing LEDs. / LED を表す GroupItem の配列。
      * @returns {Object} Refined mapping of parts to LEDs with insideness percentages. / 精査された Part-LED マッピング（内部割合付き）。
      */
-    _refineOverlapWithGeometry: function(parts, candidateLEDs) {
+    __refineOverlapWithGeometry: function(parts, leds, candidateLEDs) {
         var refinedResults = {};
         
         try {
@@ -1337,6 +1551,31 @@ var ItemIdentificationManager = {
             DebugLogManager.error("Failed to identify LEDs:", e.toString());
         }
         return leds;
+    },
+
+
+    /**
+     * Finds a part by name in identified parts.
+     */
+    findPartByName: function (name) {
+        for (var i = 0; i < this.identifiedParts.length; i++) {
+            if (this.identifiedParts[i].name === name) {
+                return this.identifiedParts[i];
+            }
+        }
+        return null;
+    },
+
+    /**
+     * Finds an LED by name in identified LEDs.
+     */
+    findLEDByName: function (name) {
+        for (var i = 0; i < this.identifiedLeds.length; i++) {
+            if (this.identifiedLeds[i].name === name) {
+                return this.identifiedLeds[i];
+            }
+        }
+        return null;
     }
 };
 
@@ -2025,6 +2264,7 @@ var LogManager = {
     _mngName: "[LOGMANAGER]",
     _data: {},
     _layerData: [],
+    _cachedLedAssignments: [],
     
         /**
      * Initializes the log manager
@@ -2559,6 +2799,15 @@ var LogManager = {
             // Generate and write output
             var output = this.generateOutput();
 
+
+            // **Append LED Assignments**
+            if (LogManager._cachedLedAssignments.length > 0) {
+                file.writeln("\n=====LED Assignments=====");
+                for (var i = 0; i < LogManager._cachedLedAssignments.length; i++) {
+                    file.writeln(LogManager._cachedLedAssignments[i]);
+                }
+            }
+
             // Append error message if provided
             if (errorMessage) {
                 output += "\n\n=== ERROR DETAILS ===\n" + errorMessage + "\n";
@@ -2819,7 +3068,8 @@ var LogManager = {
         },
 
         executeProcessing: function (initData) {
-            _mngName = "[PROCESSMGR]"; // Substitute MANAGER with appropriate name of manager. 
+            _mngName = "[PROCESSMGR]"; // Substitute MANAGER with appropriate name of manager.
+            funName = "[PROCESS]";
             try {
                 var funName = this._mngName + "[EXECUTE] "; // Substitute FUNCTION  with appropriate name of function
                 DebugLogManager.info(funName + "Starting...")
@@ -2834,6 +3084,11 @@ var LogManager = {
                     var parts = initData.sortedParts;
                     var leds = initData.sortedLEDs;
 
+
+                     // Copy object references for efficiency
+                    OverlapDetectionManager.pass1_unassigned = leds.slice();
+
+
                     // PASS 1: Bounding box detection
 
                     // Put the results directly in the cache for efficiency
@@ -2845,19 +3100,16 @@ var LogManager = {
 
                     DebugLogManager.info("[PASS1][STEP2] Completed bounding box overlap detection");
 
-                     // Copy object references for efficiency
-                    OverlapDetectionManager.pass1_unassigned = leds.slice();
-
                     // Step 2: Geometry refinement
                     var confirmedResults = OverlapDetectionManager.refineOverlapWithGeometry(parts, leds, bboxResults);
-                    DebugLogManager.info("[PASS1] confirmedResults: " + serialize(confirmedResults));
+                    DebugLogManager.info("[PASS1] confirmedResults: " + serializeConfirmedOverlaps(confirmedResults));
                     DebugLogManager.info("[PASS1] Completed geometry refinement");
 
  
-                    return true;
+                    return confirmedResults;
                 } catch (e) {
                     DebugLogManager.error(funName + " " + e.toString());
-                    return false;
+                    
                 }
 
             } catch (e) {
@@ -3068,15 +3320,17 @@ function main() {
                 var width = PathManager.getPathWidth(part);
                 var height = PathManager.getPathHeight(part);
                 var area = PathManager.getPathArea(part);
-                var ledCount = results[part.name] ? results[part.name].ledCount : 0;
+                /***************************************     */
+                var finalLedList = results[part.name];
+                var ledCount = finalLedList ? finalLedList.length : 0;
 
                 // Get LED information including the list of LEDs
-                var ledInfo = results[part.name] || { ledCount: 0, leds: [] };
+                var ledInfo = finalLedList || { ledCount: finalLedList.length, leds: finalLedList.toSource() };
 
 
                 // Store in LogManager._data for the shape-specific keys
                 // Format index with leading zeros (e.g., "001", "002", etc.)
-                var paddedIndex = ("0000" + index).slice(-4);
+                var paddedIndex = ("00000" + index).slice(-5);
                 
                 LogManager._data[LOG_KEYS.SHAPE_NAME_ROOT + paddedIndex] = part.name;
                 LogManager._data[LOG_KEYS.SHAPE_WIDTH_PT + paddedIndex] = width.pt.toFixed(2);
@@ -3097,7 +3351,7 @@ function main() {
                     height: height,
                     area: area,
                     ledCount: ledCount,
-                    ledList: ledInfo.leds
+                    ledList: finalLedList.toSource()
                 };
                 
                 LogManager._data.shapes.push(shapeData);
