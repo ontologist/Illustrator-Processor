@@ -659,7 +659,7 @@ var OverlapDetectionManager = {
                 }
             }
         }
-/*
+
         // **Fallback Assignment: Reassign any unassigned LEDs to their original bboxResults Part**
         for (var unassignedLED in unassignedLEDs) {
             if (!unassignedLEDs.hasOwnProperty(unassignedLED)) continue;
@@ -673,7 +673,7 @@ var OverlapDetectionManager = {
             DebugLogManager.warn("[FALLBACK] " + unassignedLED +
                 " reassigned to " + originalPart + " (Fallback from bboxResults)");
         }
-*/
+
         DebugLogManager.info("[REFINE] Refinement completed.");
 
         // **🚀 NEW: Cache LED Count and List for Later Logging**
@@ -704,7 +704,7 @@ cacheLedCounts: function (sortedParts, confirmedResults) {
 
         for (var i = 0; i < sortedParts.length; i++) {
             var partName = "Part_" + ("00000" + (i + 1)).slice(-5);
-            var shapeIndex = ("000" + (i + 1)).slice(-3); // 3-digit index
+            var shapeIndex = ("00000" + (i + 1)).slice(-5); // 5-digit index
             
             var ledList = [];
             var ledCount = 0;
@@ -2589,7 +2589,7 @@ var LogManager = {
                 output += "\n=== SHAPE MEASUREMENTS ===\n";
                 
                 for (var i = 0; i < this._data.shapes.length; i++) {
-                    var index = ("000" + (i + 1)).slice(-3);  // Pad with leading zeros
+                    var index = ("00000" + (i + 1)).slice(-5);  // Pad with leading zeros
                     var shape = this._data.shapes[i];
                     
                     output += "\n--- Shape " + index + " ---\n";
@@ -3226,6 +3226,870 @@ function showTargetLayerSelectionDialog() {
     return null;
 }
 
+// CSV Export Utility for Illustrator | CSVエクスポートユーティリティ（Illustrator用）
+// Compatible with ExtendScript for Adobe Illustrator | Adobe Illustrator用のExtendScriptと互換性あり
+
+/**
+ * CSVExportManager: Handles parsing log files and exporting data to CSV/Excel formats
+ * CSVエクスポートマネージャー: ログファイルの解析とCSV/Excel形式へのデータエクスポートを処理
+ */
+var CSVExportManager = {
+    _mngName: "[CSVEXPORTMGR]",
+    
+
+    // Auto-find output logs for the current document
+    runExport: function () {
+        try {
+            if (app.documents.length === 0) {
+                alert("Please open a document first");
+                return;
+            }
+            
+            var doc = app.activeDocument;
+            
+            // Locate the existing log file
+            var docFolder = new Folder(doc.path);
+            var baseName = doc.name.replace(/\.ai$/i, '');
+            var logFile = new File(docFolder + "/" + baseName + "_output_log.txt");
+            
+            if (!logFile.exists) {
+                alert("Cannot find log file: " + logFile.fsName + "\nPlease select the existing log file manually.");
+                
+                // Allow user to select the existing log file
+                logFile = File.openDialog("Select existing output log file", "Text files:*.txt");
+                if (!logFile) {
+                    return; // User canceled
+                }
+            }
+            
+            // Pass the existing log file path to the export function
+            var result = exportCSVFiles(logFile.fsName);
+            
+            alert("CSV Export " + (result ? "succeeded!" : "failed!"));
+        } catch(e) {
+            alert("Error: " + e.toString());
+        }
+    },
+
+    /**
+     * Main export function that reads a log file and exports to CSV
+     * ログファイルを読み込みCSVにエクスポートするメイン関数
+     * 
+     * @param {String} logFilePath - Path to the _output_log.txt file | _output_log.txtファイルへのパス
+     * @param {String} csvFilePath - Path where CSV file should be saved | CSVファイルを保存するパス
+     * @param {Boolean} createExcel - Whether to also create Excel-compatible format (CSV with BOM) | Excel互換形式（BOM付きCSV）も作成するかどうか
+     * @returns {Boolean} Success status | 成功ステータス
+     */
+    exportLogToCSV: function(logFilePath, csvFilePath, createExcel) {
+        try {
+            DebugLogManager.info(this._mngName + " Exporting log to CSV: " + logFilePath);
+            
+            // Read the log file | ログファイルを読み込み
+            var logData = this._readLogFile(logFilePath);
+            if (!logData) {
+                throw new Error("Failed to read log file | ログファイルの読み込みに失敗しました");
+            }
+            
+            // Parse the log data | ログデータを解析
+            var parsedData = this._parseLogData(logData);
+            if (!parsedData) {
+                throw new Error("Failed to parse log data | ログデータの解析に失敗しました");
+            }
+            
+            // Write to CSV | CSVに書き込み
+            var success = this._writeCSVFile(csvFilePath, parsedData);
+            if (!success) {
+                throw new Error("Failed to write CSV file | CSVファイルの書き込みに失敗しました");
+            }
+            
+            // Optionally create Excel-compatible file | オプションでExcel互換ファイルを作成
+            if (createExcel) {
+                var excelPath = csvFilePath.replace(/\.csv$/i, '_excel.csv');
+                var excelSuccess = this._writeExcelCompatibleCSV(excelPath, parsedData);
+                if (!excelSuccess) {
+                    DebugLogManager.warn(this._mngName + " Failed to create Excel-compatible file | Excel互換ファイルの作成に失敗しました");
+                }
+            }
+            
+            DebugLogManager.info(this._mngName + " Successfully exported CSV to: " + csvFilePath);
+            return true;
+            
+        } catch (error) {
+            DebugLogManager.error(this._mngName + " Export failed: " + error.toString());
+            return false;
+        }
+    },
+    
+    /**
+     * Reads the log file and returns its contents
+     * ログファイルを読み込み、その内容を返す
+     * 
+     * @param {String} filePath - Path to the log file | ログファイルへのパス
+     * @returns {String|null} File contents or null on failure | ファイルの内容、または失敗時はnull
+     */
+    _readLogFile: function(filePath) {
+        try {
+            var file = new File(filePath);
+            if (!file.exists) {
+                DebugLogManager.error(this._mngName + " Log file does not exist: " + filePath);
+                return null;
+            }
+            
+            file.encoding = "UTF-8";
+            file.open("r");
+            var content = file.read();
+            file.close();
+            
+            if (!content || content === "") {
+                DebugLogManager.error(this._mngName + " Log file is empty");
+                return null;
+            }
+            
+            return content;
+        } catch (error) {
+            DebugLogManager.error(this._mngName + " Failed to read log file: " + error.toString());
+            return null;
+        }
+    },
+    
+    /**
+     * Parses log data into structured format
+     * ログデータを構造化された形式に解析する
+     * 
+     * @param {String} logData - Raw log file content | 生のログファイル内容
+     * @returns {Object} Structured data with headers and rows | ヘッダーと行を含む構造化データ
+     */
+    _parseLogData: function(logData) {
+        try {
+            DebugLogManager.info(this._mngName + " Parsing log data | ログデータを解析中");
+            
+            var lines = logData.split(/\r\n|\r|\n/);
+            var documentData = {};
+            var shapeData = {};
+            var allKeys = [];
+            var shapeKeys = [];
+            
+            // First pass: extract document data and identify shape data
+            // 第1パス：ドキュメントデータの抽出と形状データの識別
+            for (var i = 0; i < lines.length; i++) {
+                var line = lines[i];
+                var trimmedLine = this._trimString(line);
+                
+                // Skip empty lines or section markers | 空行やセクションマーカーをスキップ
+                if (trimmedLine === "" || trimmedLine.match(/^(===|---)/)) {
+                    continue;
+                }
+                
+                // Skip comment lines | コメント行をスキップ
+                if (trimmedLine.indexOf("/*") === 0) {
+                    continue;
+                }
+                
+                // Look for key-value pairs (containing colon) | キーと値のペア（コロンを含む）を探す
+                var colonIndex = line.indexOf(":");
+                if (colonIndex > -1) {
+                    var key = this._trimString(line.substring(0, colonIndex));
+                    var value = this._trimString(line.substring(colonIndex + 1));
+                    
+                    // Check if this is shape-specific data | これが形状固有のデータかどうかを確認
+                    var shapeMatch = key.match(/(Part_\w+)_(\d{5})$/);
+                    if (shapeMatch) {
+                        var baseKey = shapeMatch[1];
+                        var index = shapeMatch[2];
+                        
+                        // Initialize shape data structure if needed | 必要に応じて形状データ構造を初期化
+                        if (!shapeData[index]) {
+                            shapeData[index] = {};
+                        }
+                        
+                        // Store the data with base key | ベースキーでデータを保存
+                        shapeData[index][baseKey] = value;
+                        
+                        // Add to known shape keys if new | 新しい場合は既知の形状キーに追加
+                        if (this._arrayContains(shapeKeys, baseKey) === false) {
+                            shapeKeys.push(baseKey);
+                        }
+                    } else {
+                        // This is document-level data | これはドキュメントレベルのデータ
+                        documentData[key] = value;
+                        
+                        // Add to known document keys if new | 新しい場合は既知のドキュメントキーに追加
+                        if (this._arrayContains(allKeys, key) === false) {
+                            allKeys.push(key);
+                        }
+                    }
+                }
+            }
+            
+            // Second pass: create rows with document data in columns A-L and shape data in M+
+            // 第2パス：ドキュメントデータを列A-Lに、形状データを列M以降に配置して行を作成
+            var rows = [];
+            var shapeIndices = this._getObjectKeys(shapeData);
+            
+            // Organize document keys in the correct order
+            // ドキュメントキーを正しい順序で整理
+            var orderedDocKeys = [
+                "Document path", 
+                "Document name", 
+                "Export path", 
+                "Number of layers", 
+                "Found target layer", 
+                "Area (ptsq)", 
+                "Area (mmsq)", 
+                "Area (cmsq)", 
+                "Max Height (points)", 
+                "Max Height (mm)", 
+                "Max Height (cm)",
+                "LED Group Count"
+            ];
+            
+            // Filter keys to match only those present in the data
+            // データに存在するキーのみと一致するようにキーをフィルタリング
+            var finalDocKeys = [];
+            for (var i = 0; i < orderedDocKeys.length; i++) {
+                if (documentData.hasOwnProperty(orderedDocKeys[i])) {
+                    finalDocKeys.push(orderedDocKeys[i]);
+                }
+            }
+            
+            // Add any remaining document keys not in the ordered list
+            // 順序付きリストにないドキュメントキーを追加
+            for (var key in documentData) {
+                if (documentData.hasOwnProperty(key) && this._arrayContains(finalDocKeys, key) === false) {
+                    finalDocKeys.push(key);
+                }
+            }
+            
+            // Get all document values in the correct order
+            // 正しい順序ですべてのドキュメント値を取得
+            var docValues = [];
+            for (var i = 0; i < finalDocKeys.length; i++) {
+                if (documentData.hasOwnProperty(finalDocKeys[i])) {
+                    docValues.push(documentData[finalDocKeys[i]]);
+                } else {
+                    docValues.push("");
+                }
+            }
+            
+            // Add bilingual headers for document data
+            // ドキュメントデータのバイリンガルヘッダーを追加
+            var docHeaders = [
+                "Doc path/パス", 
+                "Doc name/名", 
+                "Export path/エキスポートパス", 
+                "Number of layers/レーヤー数", 
+                "Target layer/ターゲットレヤー", 
+                "Area (ptsq)/面積", 
+                "Area (mmsq)/面積", 
+                "Area (cmsq)/面積", 
+                "Max Height (points)/最大高さ", 
+                "Max Height (mm)/最大高さ", 
+                "Max Height (cm)/最大高さ", 
+                "Total LED Count/LED数合計"
+            ];
+            
+            // Ensure headers match available data
+            // ヘッダーが利用可能なデータと一致することを確認
+            var finalDocHeaders = [];
+            for (var i = 0; i < Math.min(docHeaders.length, finalDocKeys.length); i++) {
+                finalDocHeaders.push(docHeaders[i]);
+            }
+            
+            // Add shape data with organized headers
+            // 整理されたヘッダーで形状データを追加
+            if (shapeIndices.length > 0) {
+                // Create organized headers for shape data
+                // 形状データの整理されたヘッダーを作成
+                var shapeHeaders = [
+                    "ShapeName(形状名)",
+                    "Width_pt(幅_pt)",
+                    "Width_mm(幅_mm)",
+                    "Width_cm(幅_cm)",
+                    "Height_pt(高さ_pt)",
+                    "Height_mm(高さ_mm)",
+                    "Height_cm(高さ_cm)",
+                    "Area_ptsq(面積_ptsq)",
+                    "Area_mm2(面積_mm2)",
+                    "Area_cm2(面積_cm2)",
+                    "LEDCount(LED数)",
+                    "AssociatedLEDs(関連LED)"
+                ];
+                
+                // Map logical shape keys to display headers
+                // 論理的な形状キーを表示ヘッダーにマッピング
+                var shapeKeyToHeader = {
+                    "Part": "ShapeName(形状名)",
+                    "Part_width_(pt)": "Width_pt(幅_pt)",
+                    "Part_width_(mm)": "Width_mm(幅_mm)",
+                    "Part_width_(cm)": "Width_cm(幅_cm)",
+                    "Part_height_(pt)": "Height_pt(高さ_pt)",
+                    "Part_height_(mm)": "Height_mm(高さ_mm)",
+                    "Part_height_(cm)": "Height_cm(高さ_cm)",
+                    "Part_area_(ptsq)": "Area_ptsq(面積_ptsq)",
+                    "Part_area_(mmsq)": "Area_mm2(面積_mm2)",
+                    "Part_area_(cmsq)": "Area_cm2(面積_cm2)",
+                    "Part_led_count": "LEDCount(LED数)",
+                    "Part_led_list": "AssociatedLEDs(関連LED)"
+                };
+                
+                // Create one row per shape with document data repeated
+                // ドキュメントデータを繰り返した形状ごとに1行を作成
+                for (var j = 0; j < shapeIndices.length; j++) {
+                    var index = shapeIndices[j];
+                    var rowData = {};
+                    
+                    // First add document data columns (A-L)
+                    // 最初にドキュメントデータ列を追加（A-L）
+                    for (var k = 0; k < finalDocHeaders.length; k++) {
+                        var headerKey = finalDocHeaders[k];
+                        var valueIndex = Math.min(k, docValues.length - 1);
+                        rowData[headerKey] = docValues[valueIndex];
+                    }
+                    
+                    // Then add shape data columns (M+)
+                    // 次に形状データ列を追加（M+）
+                    for (var shapeKey in shapeData[index]) {
+                        if (shapeData[index].hasOwnProperty(shapeKey)) {
+                            // Get the correct header name from the mapping
+                            var headerName = null;
+                            
+                            // Check exact matches first
+                            if (shapeKeyToHeader[shapeKey]) {
+                                headerName = shapeKeyToHeader[shapeKey];
+                            } else {
+                                // For keys with index suffixes like "Part_width_(pt)_00012"
+                                // Loop through the mapping keys to find the base key
+                                for (var baseKey in shapeKeyToHeader) {
+                                    if (shapeKey.indexOf(baseKey) === 0) {
+                                        headerName = shapeKeyToHeader[baseKey];
+                                        break;
+                                    }
+                                }
+                                
+                                // If no match found, use the original key
+                                if (!headerName) {
+                                    headerName = shapeKey;
+                                }
+                            }
+                            
+                            rowData[headerName] = shapeData[index][shapeKey];
+                        }
+                    }
+                    
+                    // Ensure shape index is stored
+                    // 形状インデックスが保存されていることを確認
+                    rowData["ShapeIndex"] = index;
+                    
+                    rows.push(rowData);
+                }
+            } else {
+                // No shapes - just create one row with document data
+                // 形状なし - ドキュメントデータのみで1行作成
+                var singleRow = {};
+                for (var k = 0; k < finalDocHeaders.length; k++) {
+                    var headerKey = finalDocHeaders[k];
+                    var valueIndex = Math.min(k, docValues.length - 1);
+                    singleRow[headerKey] = docValues[valueIndex];
+                }
+                rows.push(singleRow);
+            }
+            
+            // Combine document and shape headers
+            // ドキュメントと形状のヘッダーを結合
+            var combinedHeaders = finalDocHeaders.concat(shapeHeaders);
+            
+            // Return structured data with separate header sections
+            // 分離されたヘッダーセクションを持つ構造化データを返す
+            return {
+                docHeaders: finalDocHeaders,
+                shapeHeaders: shapeHeaders,
+                headers: combinedHeaders,
+                rows: rows
+            };
+            
+        } catch (error) {
+            DebugLogManager.error(this._mngName + " Failed to parse log data: " + error.toString());
+            return null;
+        }
+    },
+
+    // Helper method to check if array contains an element (ExtendScript compatible)
+    _arrayContains: function(array, item) {
+        for (var i = 0; i < array.length; i++) {
+            if (array[i] === item) {
+                return true;
+            }
+        }
+        return false;
+    },
+
+    // Helper for string trimming
+    _trimString: function(str) {
+        if (!str) return "";
+        // ExtendScript-compatible trim function
+        return str.replace(/^\s+|\s+$/g, '');
+    },
+    
+    /**
+     * Helper to get object keys for ExtendScript compatibility
+     * ExtendScriptの互換性のためのオブジェクトキー取得ヘルパー
+     * 
+     * @param {Object} obj - The object to get keys from | キーを取得するオブジェクト
+     * @returns {Array} Array of keys | キーの配列
+     */
+    _getObjectKeys: function(obj) {
+        var keys = [];
+        for (var key in obj) {
+            if (obj.hasOwnProperty(key)) {
+                keys.push(key);
+            }
+        }
+        return keys;
+    },
+    
+    /**
+     * Writes parsed data to a CSV file
+     * 解析されたデータをCSVファイルに書き込む
+     * 
+     * @param {String} filePath - Output CSV file path | 出力CSVファイルパス
+     * @param {Object} data - Parsed data with headers and rows | ヘッダーと行を含む解析済みデータ
+     * @returns {Boolean} Success status | 成功ステータス
+     */
+    _writeCSVFile: function(filePath, data) {
+        try {
+            var file = new File(filePath);
+            // Set UTF-8 encoding with proper line endings for Japanese text support
+            // 日本語テキストをサポートするためにUTF-8エンコーディングと適切な改行設定
+            file.encoding = "UTF-8";
+            file.lineFeed = "unix";
+            file.open("w");
+            
+            // Add UTF-8 BOM for Japanese compatibility with some spreadsheet programs
+            // 一部の表計算プログラムでの日本語互換性のためにUTF-8 BOMを追加
+            file.write("\uFEFF");
+            
+            // Write headers | ヘッダーを書き込む
+            var headerLine = "";
+            for (var i = 0; i < data.headers.length; i++) {
+                if (i > 0) headerLine += ",";
+                headerLine += this._escapeCSV(data.headers[i]);
+            }
+            file.writeln(headerLine);
+            
+            // Write rows | 行を書き込む
+            for (var j = 0; j < data.rows.length; j++) {
+                var rowLine = "";
+                var row = data.rows[j];
+                
+                for (var k = 0; k < data.headers.length; k++) {
+                    var header = data.headers[k];
+                    if (k > 0) rowLine += ",";
+                    
+                    var cellValue = row[header] || "";
+                    rowLine += this._escapeCSV(cellValue);
+                }
+                
+                file.writeln(rowLine);
+            }
+            
+            file.close();
+            return true;
+            
+        } catch (error) {
+            DebugLogManager.error(this._mngName + " Failed to write CSV file: " + error.toString() + " | CSVファイルの書き込みに失敗しました");
+            return false;
+        }
+    },
+    
+    /**
+     * Writes Excel-compatible CSV (with BOM and different escaping)
+     * Excel互換CSV（BOMと異なるエスケープ）を書き込む
+     * 
+     * @param {String} filePath - Output Excel-compatible CSV path | 出力Excel互換CSVパス
+     * @param {Object} data - Parsed data with headers and rows | ヘッダーと行を含む解析済みデータ
+     * @returns {Boolean} Success status | 成功ステータス
+     */
+    _writeExcelCompatibleCSV: function(filePath, data) {
+        try {
+            var file = new File(filePath);
+            // Configure file properly for Japanese Excel compatibility
+            // 日本語Excelとの互換性のためにファイルを適切に設定
+            file.encoding = "UTF-8";
+            file.lineFeed = "windows"; // Excel for Windows expects CRLF
+            file.open("w");
+            
+            // Write BOM for Excel | Excel用のBOMを書き込む
+            file.write("\uFEFF");
+            
+            // For Japanese Excel, use tab as separator which works better with CJK characters
+            // 日本語Excel用に、CJK文字でより適切に機能するタブ区切りを使用
+            var separator = "\t";
+            
+            // Write headers | ヘッダーを書き込む
+            var headerLine = "";
+            for (var i = 0; i < data.headers.length; i++) {
+                if (i > 0) headerLine += separator;
+                headerLine += this._escapeExcelCSV(data.headers[i]);
+            }
+            file.writeln(headerLine);
+            
+            // Write rows | 行を書き込む
+            for (var j = 0; j < data.rows.length; j++) {
+                var rowLine = "";
+                var row = data.rows[j];
+                
+                for (var k = 0; k < data.headers.length; k++) {
+                    var header = data.headers[k];
+                    if (k > 0) rowLine += separator;
+                    
+                    var cellValue = row[header] || "";
+                    rowLine += this._escapeExcelCSV(cellValue);
+                }
+                
+                file.writeln(rowLine);
+            }
+            
+            file.close();
+            return true;
+            
+        } catch (error) {
+            DebugLogManager.error(this._mngName + " Failed to write Excel-compatible CSV: " + error.toString() + " | Excel互換CSVの書き込みに失敗しました");
+            return false;
+        }
+    },
+    
+    /**
+     * Escape a value for CSV format
+     * CSV形式の値をエスケープする
+     * 
+     * @param {String} value - The value to escape | エスケープする値
+     * @returns {String} Escaped value | エスケープされた値
+     */
+    _escapeCSV: function(value) {
+        if (value === null || value === undefined) {
+            return "";
+        }
+        
+        value = String(value);
+        
+        // If value contains comma, newline or quote, enclose in quotes
+        // 値にカンマ、改行、引用符が含まれる場合、引用符で囲む
+        if (value.indexOf(",") !== -1 || value.indexOf("\n") !== -1 || 
+            value.indexOf("\r") !== -1 || value.indexOf('"') !== -1) {
+            
+            // Double up quotes | 引用符を二重にする
+            value = value.replace(/"/g, '""');
+            
+            // Enclose in quotes | 引用符で囲む
+            value = '"' + value + '"';
+        }
+        
+        return value;
+    },
+    
+    /**
+     * Escape a value for Excel-compatible CSV format
+     * Excel互換CSV形式の値をエスケープする
+     * 
+     * @param {String} value - The value to escape | エスケープする値
+     * @returns {String} Escaped value | エスケープされた値
+     */
+    _escapeExcelCSV: function(value) {
+        if (value === null || value === undefined) {
+            return "";
+        }
+        
+        value = String(value);
+        
+        // If value contains semicolon, newline or quote, enclose in quotes
+        // 値にセミコロン、改行、引用符が含まれる場合、引用符で囲む
+        if (value.indexOf(";") !== -1 || value.indexOf("\n") !== -1 || 
+            value.indexOf("\r") !== -1 || value.indexOf('"') !== -1) {
+            
+            // Excel uses doubled quotes to escape quotes | Excelは引用符をエスケープするために二重引用符を使用
+            value = value.replace(/"/g, '""');
+            
+            // Enclose in quotes | 引用符で囲む
+            value = '"' + value + '"';
+        }
+        
+        return value;
+    },
+    
+    /**
+     * Generate a secondary simplified CSV focusing on shape-LED relationships
+     * 形状-LED関係に焦点を当てた二次的な簡略化CSVを生成する
+     * 
+     * @param {String} logFilePath - Path to the original log file | 元のログファイルへのパス
+     * @param {String} csvFilePath - Path where the simplified CSV should be saved | 簡略化されたCSVを保存するパス
+     * @returns {Boolean} Success status | 成功ステータス
+     */
+    exportSimplifiedShapeData: function(logFilePath, csvFilePath) {
+        try {
+            DebugLogManager.info(this._mngName + " Exporting simplified shape data | 簡略化された形状データをエクスポートしています");
+            
+            // Read and parse the log file | ログファイルを読み込み解析
+            var logData = this._readLogFile(logFilePath);
+            if (!logData) {
+                throw new Error("Failed to read log file | ログファイルの読み込みに失敗しました");
+            }
+            
+            var lines = logData.split(/\r\n|\r|\n/);
+            var shapes = [];
+            var currentShape = null;
+            
+            // Parse shape-specific data | 形状固有のデータを解析
+            for (var i = 0; i < lines.length; i++) {
+                var line = lines[i];
+                var trimmedLine = this._trimString(line);
+                
+                // Look for shape section markers | 形状セクションマーカーを探す
+                if (trimmedLine.match(/^--- Shape \d+ ---$/)) {
+                    // Start a new shape | 新しい形状を開始
+                    if (currentShape !== null) {
+                        shapes.push(currentShape);
+                    }
+                    currentShape = {
+                        name: "",
+                        width_pt: "",
+                        width_mm: "",
+                        width_cm: "",
+                        height_pt: "",
+                        height_mm: "",
+                        height_cm: "",
+                        area_ptsq: "",
+                        area_mm2: "",
+                        area_cm2: "",
+                        ledCount: 0,
+                        ledList: ""
+                    };
+                    continue;
+                }
+                
+                // Skip if not in a shape section | 形状セクション内でなければスキップ
+                if (currentShape === null) {
+                    continue;
+                }
+                
+                // Parse key-value pairs | キー値ペアを解析
+                var colonIndex = line.indexOf(":");
+                if (colonIndex > -1) {
+                    var key = this._trimString(line.substring(0, colonIndex));
+                    var value = this._trimString(line.substring(colonIndex + 1));
+                    
+                    // Match different properties with improved patterns
+                    if (key.match(/Part_\d+/) && !key.match(/Part_\w+_\d+/)) {
+                        currentShape.name = value;
+                    } else if (key.match(/Part_width_\(pt\)_\d+/)) {
+                        currentShape.width_pt = value;
+                    } else if (key.match(/Part_width_\(mm\)_\d+/)) {
+                        currentShape.width_mm = value;
+                    } else if (key.match(/Part_width_\(cm\)_\d+/)) {
+                        currentShape.width_cm = value;
+                    } else if (key.match(/Part_height_\(pt\)_\d+/)) {
+                        currentShape.height_pt = value;
+                    } else if (key.match(/Part_height_\(mm\)_\d+/)) {
+                        currentShape.height_mm = value;
+                    } else if (key.match(/Part_height_\(cm\)_\d+/)) {
+                        currentShape.height_cm = value;
+                    } else if (key.match(/Part_area_\(ptsq\)_\d+/)) {
+                        currentShape.area_ptsq = value;
+                    } else if (key.match(/Part_area_\(mmsq\)_\d+/)) {
+                        currentShape.area_mm2 = value;
+                    } else if (key.match(/Part_area_\(cmsq\)_\d+/)) {
+                        currentShape.area_cm2 = value;
+                    } else if (key.match(/Part_led_count_\d+/)) {
+                        currentShape.ledCount = parseInt(value) || 0;
+                    } else if (key.match(/Part_led_list_\d+/)) {
+                        currentShape.ledList = value;
+                    }
+                }
+            }
+            
+            // Add the last shape if any | 最後の形状があれば追加
+            if (currentShape !== null) {
+                shapes.push(currentShape);
+            }
+            
+            // Write to CSV | CSVに書き込み
+            var file = new File(csvFilePath);
+            file.encoding = "UTF-8";
+            file.lineFeed = "unix";
+            file.open("w");
+            
+            // Write BOM for Japanese compatibility | 日本語互換性のためにBOMを書き込み
+            file.write("\uFEFF");
+            
+            // Write comprehensive headers including all units
+            file.writeln("ShapeName(形状名)," +
+                        "Width_pt(幅_pt),Width_mm(幅_mm),Width_cm(幅_cm)," +
+                        "Height_pt(高さ_pt),Height_mm(高さ_mm),Height_cm(高さ_cm)," +
+                        "Area_ptsq(面積_ptsq),Area_mm2(面積_mm2),Area_cm2(面積_cm2)," +
+                        "LEDCount(LED数),AssociatedLEDs(関連LED)");
+            
+            // Write shape data | 形状データを書き込み
+            for (var j = 0; j < shapes.length; j++) {
+                var shape = shapes[j];
+                var line = this._escapeCSV(shape.name) + "," +
+                        this._escapeCSV(shape.width_pt) + "," +
+                        this._escapeCSV(shape.width_mm) + "," +
+                        this._escapeCSV(shape.width_cm) + "," +
+                        this._escapeCSV(shape.height_pt) + "," +
+                        this._escapeCSV(shape.height_mm) + "," +
+                        this._escapeCSV(shape.height_cm) + "," +
+                        this._escapeCSV(shape.area_ptsq) + "," +
+                        this._escapeCSV(shape.area_mm2) + "," +
+                        this._escapeCSV(shape.area_cm2) + "," +
+                        this._escapeCSV(shape.ledCount) + "," +
+                        this._escapeCSV(shape.ledList);
+                file.writeln(line);
+            }
+            
+            file.close();
+            DebugLogManager.info(this._mngName + " Successfully exported simplified CSV to: " + csvFilePath + " | 簡略化されたCSVの出力に成功しました");
+            return true;
+            
+        } catch (error) {
+            DebugLogManager.error(this._mngName + " Failed to export simplified shape data: " + error.toString() + " | 簡略化された形状データのエクスポートに失敗しました");
+            return false;
+        }
+    },
+
+    /**
+     * Function to integrate CSV export into the main workflow
+     * CSVエクスポートをメインワークフローに統合する関数
+     * 
+     * @param {String} outputLogPath - Path to the output log file | 出力ログファイルへのパス
+     * @returns {Boolean} Success status | 成功ステータス
+     */
+    exportCSVFiles: function (outputLogPath, addTimestamp) {
+        try {
+            DebugLogManager.info("[CSV EXPORT] Starting CSV export process | CSVエクスポート処理を開始します");
+            
+            // Verify log file path is valid
+            if (!outputLogPath || outputLogPath.length === 0) {
+                DebugLogManager.error("[CSV EXPORT] Invalid output log path | 無効な出力ログパス");
+                return false;
+            }
+            
+            // Verify log file exists
+            var logFile = new File(outputLogPath);
+            if (!logFile.exists) {
+                DebugLogManager.error("[CSV EXPORT] Output log file not found: " + outputLogPath + " | 出力ログファイルが見つかりません");
+                return false;
+            }
+            
+            // Generate timestamp for filenames if requested
+            var timestamp = "";
+            if (addTimestamp) {
+                var now = new Date();
+                timestamp = "_" + 
+                    now.getFullYear() + 
+                    ("0" + (now.getMonth() + 1)).slice(-2) + 
+                    ("0" + now.getDate()).slice(-2) + "_" +
+                    ("0" + now.getHours()).slice(-2) + 
+                    ("0" + now.getMinutes()).slice(-2);
+            }
+            
+            // Determine CSV output paths
+            var basePath = outputLogPath.replace(/_output_log\.txt$/i, '');
+            var mainCSVPath = basePath + timestamp + "_data.csv";
+            var simplifiedCSVPath = basePath + timestamp + "_shapes.csv";
+            
+            // Export main CSV
+            var mainSuccess = CSVExportManager.exportLogToCSV(
+                outputLogPath, 
+                mainCSVPath,
+                true // create Excel-compatible version
+            );
+            
+            // Export simplified shape data
+            var shapeSuccess = CSVExportManager.exportSimplifiedShapeData(
+                outputLogPath,
+                simplifiedCSVPath
+            );
+
+            var mergeSuccess = mergeCSVFilesInPlace(mainCSVPath, simplifiedCSVPath);
+            
+            DebugLogManager.info("[CSV EXPORT] Export complete. Main CSV: " +
+                (mainSuccess ? "Success | 成功" : "Failed | 失敗") +
+                ", Shape CSV: " +
+                (shapeSuccess ? "Success | 成功" : "Failed | 失敗") +
+                ", Merge: " +
+                (mergeSuccess ? "Success | 成功" : "Failed | 失敗")); 
+            
+            return mainSuccess && shapeSuccess;
+            
+        } catch (error) {
+            DebugLogManager.error("[CSV EXPORT] Export process failed: " + error.toString() + " | エクスポート処理に失敗しました");
+            return false;
+        }
+    }
+
+};
+
+
+
+    
+function mergeCSVFilesInPlace (fileAPath, fileBPath) {
+    try {
+        var fileA = new File(fileAPath);
+        var fileB = new File(fileBPath);
+
+        if (!fileA.exists || !fileB.exists) {
+            alert("One or both CSV files not found.");
+            return false;
+        }
+
+        fileA.open("r");
+        var contentA = [];
+        while (!fileA.eof) {
+            contentA.push(fileA.readln());
+        }
+        fileA.close();
+
+        fileB.open("r");
+        var contentB = [];
+        while (!fileB.eof) {
+            contentB.push(fileB.readln());
+        }
+        fileB.close();
+
+        if (contentA.length !== contentB.length) {
+            alert("The CSV files have different row counts and cannot be merged correctly.");
+            return false;
+        }
+
+        fileA.open("w");
+        fileA.encoding = "UTF-8";
+        fileA.lineFeed = "unix";
+        fileA.write("\uFEFF"); // UTF-8 BOM for compatibility
+
+        for (var i = 0; i < contentA.length; i++) {
+            var rowA = contentA[i].split(",");
+            var rowB = contentB[i].split(",");
+            
+            if (i === 0) {
+                // Ensure headers from file B do not repeat column names
+                for (var j = 0; j < rowB.length; j++) {
+                    rowB[j] = "B_" + rowB[j];
+                }
+            }
+            
+            var mergedRow = rowA.concat(rowB);
+            fileA.writeln(mergedRow.join(","));
+        }
+        
+        fileA.close();
+        alert("CSV merge completed successfully, modifying File A in place.");
+        return true;
+
+    } catch (error) {
+        alert("Error merging CSV files: " + error.toString());
+        return false;
+    }
+}
+
 /*
 // Use it like this:
 var selectedOption = showTargetLayerSelectionDialog();
@@ -3366,6 +4230,8 @@ function main() {
         var exportPath = doc.path + "/" + doc.name.replace(/\.ai$/i, '') + "_output_log.txt";
         LogManager._data[LOG_KEYS.EXPORT_PATH] = exportPath;
         DebugLogManager.info(funName + "Set export path: " + exportPath);
+
+        var successfulExport = CSVExportManager.runExport();
 
         // Write output file
         var success = LogManager.writeToFile();
